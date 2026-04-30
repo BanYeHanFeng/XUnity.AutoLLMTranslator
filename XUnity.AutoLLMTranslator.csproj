@@ -23,7 +23,7 @@
 	<ItemGroup>
 		<PackageReference Include="ILRepack.MSBuild.Task" Version="2.0.13" PrivateAssets="All" />
 	</ItemGroup>
-	<Target Name="ILRepack" AfterTargets="Build">
+	<Target Name="ILRepack" AfterTargets="Build" Condition="'$(CI)' != 'true'">
 		<PropertyGroup>
 			<WorkingDirectory>$(MSBuildThisFileDirectory)bin\$(Configuration)\$(TargetFramework)</WorkingDirectory>
 		</PropertyGroup>
@@ -31,7 +31,7 @@
 		<ILRepack OutputType="$(OutputType)" MainAssembly="$(AssemblyName).dll" OutputAssembly="$(AssemblyName).dll" InputAssemblies="@(InputAssemblies)" InternalizeExcludeAssemblies="@(InternalizeExcludeAssemblies)" WorkingDirectory="$(WorkingDirectory)" />
 	</Target>
 
-	<Target Name="PostBuild" AfterTargets="ILRepack">
+	<Target Name="PostBuild" AfterTargets="ILRepack" Condition="'$(CI)' != 'true'">
 		<Exec Command="XCOPY /Y /I &quot;$(TargetDir)$(TargetName)$(TargetExt)&quot; &quot;$(GameDir)&quot;" />
 	</Target>
 
