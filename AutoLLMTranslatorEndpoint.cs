@@ -7,7 +7,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
 
     #region Since all batching and concurrency are handled within TranslatorTask, please do not modify these two parameters.
     public override int MaxTranslationsPerRequest => 1;
-    public override int MaxConcurrency => 100;
+    public override int MaxConcurrency => 500;
 
     #endregion
 
