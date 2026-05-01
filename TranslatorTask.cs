@@ -27,6 +27,7 @@ public class TranslatorTask
         public int reqID { get; set; }
         public int retryCount { get; set; }
         public TaskState state = TaskState.Waiting;
+        public long addTick;
 
         //响应
         public bool TryRespond()
@@ -72,6 +73,7 @@ public class TranslatorTask
     private int _maxRetry = 10;
     private int _batchTimeoutMs = 1000;
     private long _lastAddTime = 0;
+    private long _oldestWaitingTick = 0;
     private string _modelParams = "";
     List<TaskData> taskDatas = new List<TaskData>();
     TranslateDB translateDB = new TranslateDB();
@@ -96,6 +98,7 @@ public class TranslatorTask
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
+        ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
             context.DisableSpamChecks();
@@ -204,10 +207,6 @@ public class TranslatorTask
                     {
                         taskToken += txt.Length;
                     }
-                    if (toltoken + taskToken > _maxWordCount && tasks.Count > 0)
-                    {
-                        break;
-                    }
                     if (task.retryCount > 2 && tasks.Count > 0)
                     {
                         continue;
@@ -216,7 +215,8 @@ public class TranslatorTask
                     tasks.Add(task);
                     if (task.retryCount > 0)//错过就单独处理
                         break;
-                    //task.state = TaskData.TaskState.Processing;
+                    if (toltoken >= _maxWordCount)
+                        break;
                 }
             }
         }
@@ -227,12 +227,15 @@ public class TranslatorTask
     {
         Logger.Debug($"添加任务: {string.Join(", ", texts)}");
         var task = new TaskData() { texts = texts, context = context };
+        task.addTick = Environment.TickCount;
 
-        // 添加任务时上锁
         lock (_lockObject)
         {
+            bool isFirstWaiting = !taskDatas.Any(t => t.state == TaskData.TaskState.Waiting);
             taskDatas.Insert(0, task);
             _lastAddTime = Environment.TickCount;
+            if (isFirstWaiting)
+                _oldestWaitingTick = task.addTick;
         }
 
         // // 等待任务完成
@@ -356,6 +359,9 @@ public class TranslatorTask
                     Logger.Error($"模型参数解析错误: {ex.Message}");
                 }
             }
+
+            var totalChars = texts.Sum(t => t.Length);
+            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 并行 {curProcessingCount}/{_parallelCount}");
 
 
 
@@ -537,7 +543,6 @@ public class TranslatorTask
             {
 
                 Thread.Sleep(_pollingInterval);
-                //if (curProcessingCount > 0)
                 Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
                 if (curProcessingCount >= _parallelCount)
                 {
@@ -545,6 +550,7 @@ public class TranslatorTask
                 }
                 int waitingCount;
                 int waitingToken = 0;
+                long oldestTick;
                 lock (_lockObject)
                 {
                     waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
@@ -552,42 +558,49 @@ public class TranslatorTask
                         .Where(t => t.state == TaskData.TaskState.Waiting)
                         .SelectMany(t => t.texts)
                         .Sum(txt => txt.Length);
+                    var oldestWaiting = taskDatas
+                        .Where(t => t.state == TaskData.TaskState.Waiting)
+                        .OrderBy(t => t.addTick)
+                        .FirstOrDefault();
+                    oldestTick = oldestWaiting?.addTick ?? Environment.TickCount;
                 }
-                if (waitingCount > 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs && waitingToken <= _maxWordCount)
+
+                // 规则: BatchTimeout内积累文本, 达到MaxWordCount则立即发送
+                if (waitingCount > 0 && Environment.TickCount - oldestTick < _batchTimeoutMs && waitingToken < _maxWordCount)
                 {
+                    Logger.Debug($"等待收集: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} oldestWaitMs={Environment.TickCount - oldestTick}/{_batchTimeoutMs}");
                     continue;
                 }
 
+                Logger.Info($"触发发送: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} oldestWaitMs={Environment.TickCount - oldestTick}");
+
                 List<List<TaskData>> taskDatass = new List<List<TaskData>>();
-                List<TaskData> tasks;
                 lock (_lockObject)
                 {
-                    tasks = SelectTasks();
-                    //Logger.Debug($"Polling SelectTasks: {tasks.Count}");
-                    while (tasks.Count > 0 && curProcessingCount < _parallelCount)
+                    var batch = SelectTasks();
+                    while (batch.Count > 0 && taskDatass.Count < _parallelCount)
                     {
                         curProcessingCount++;
-                        foreach (var task in tasks)
-                        {
+                        foreach (var task in batch)
                             task.state = TaskData.TaskState.Processing;
-                        }
-                        taskDatass.Add(tasks);
-                        tasks = SelectTasks();
+                        taskDatass.Add(batch);
+                        batch = SelectTasks();
                     }
                 }
 
-                // 在锁外启动任务处理
                 if (taskDatass.Count > 0)
                 {
+                    Logger.Info($"启动 {taskDatass.Count} 个批次 (并行 {curProcessingCount}/{_parallelCount})");
                     foreach (var tasklist in taskDatass)
                     {
-                        var taskListCopy = new List<TaskData>(tasklist); // Create a copy for thread safety
+                        var totalChars = tasklist.Sum(t => t.texts.Sum(txt => txt.Length));
+                        Logger.Info($"  批次文本数={tasklist.Count} 字符数={totalChars}");
+                        var taskListCopy = new List<TaskData>(tasklist);
                         Thread processingThread = new Thread(() => ProcessTaskBatch(taskListCopy));
                         processingThread.IsBackground = true;
                         processingThread.Start();
                     }
                 }
-                // Log("Polling End");
             }
             catch (Exception ex)
             {
