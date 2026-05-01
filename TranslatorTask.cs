@@ -550,7 +550,6 @@ public class TranslatorTask
                 }
                 int waitingCount;
                 int waitingToken = 0;
-                long oldestTick;
                 lock (_lockObject)
                 {
                     waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
@@ -558,21 +557,16 @@ public class TranslatorTask
                         .Where(t => t.state == TaskData.TaskState.Waiting)
                         .SelectMany(t => t.texts)
                         .Sum(txt => txt.Length);
-                    var oldestWaiting = taskDatas
-                        .Where(t => t.state == TaskData.TaskState.Waiting)
-                        .OrderBy(t => t.addTick)
-                        .FirstOrDefault();
-                    oldestTick = oldestWaiting?.addTick ?? Environment.TickCount;
                 }
 
-                // 规则: BatchTimeout内积累文本, 达到MaxWordCount则立即发送
-                if (waitingCount > 0 && Environment.TickCount - oldestTick < _batchTimeoutMs && waitingToken < _maxWordCount)
+                // BatchTimeout: 无新文本传入到期后处理, MaxWordCount不受限
+                if (waitingCount > 0 && waitingToken < _maxWordCount && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
                 {
-                    Logger.Debug($"等待收集: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} oldestWaitMs={Environment.TickCount - oldestTick}/{_batchTimeoutMs}");
                     continue;
                 }
 
-                Logger.Info($"触发发送: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} oldestWaitMs={Environment.TickCount - oldestTick}");
+                if (waitingCount > 0)
+                    Logger.Info($"触发发送: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} idleMs={Environment.TickCount - _lastAddTime}");
 
                 List<List<TaskData>> taskDatass = new List<List<TaskData>>();
                 lock (_lockObject)
@@ -590,11 +584,10 @@ public class TranslatorTask
 
                 if (taskDatass.Count > 0)
                 {
-                    Logger.Info($"启动 {taskDatass.Count} 个批次 (并行 {curProcessingCount}/{_parallelCount})");
                     foreach (var tasklist in taskDatass)
                     {
                         var totalChars = tasklist.Sum(t => t.texts.Sum(txt => txt.Length));
-                        Logger.Info($"  批次文本数={tasklist.Count} 字符数={totalChars}");
+                        Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
                         var taskListCopy = new List<TaskData>(tasklist);
                         Thread processingThread = new Thread(() => ProcessTaskBatch(taskListCopy));
                         processingThread.IsBackground = true;
