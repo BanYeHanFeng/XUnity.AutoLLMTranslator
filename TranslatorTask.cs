@@ -413,6 +413,8 @@ public class TranslatorTask
                                 Logger.Debug($"{hashkey} 流1: |{txt}| len: {txt.Length}");
                                 point += Math.Max(1, txt.Length);
                                 var rs = txt.Trim();
+                                if (rs.Contains("<context_think>") || rs.Contains("</context_think>") || rs.Contains("<think>") || rs.Contains("</think>"))
+                                    continue;
                                 if (rs.Length == 0 || rs.IndexOf('\"') < 0)
                                 {
                                     continue;
