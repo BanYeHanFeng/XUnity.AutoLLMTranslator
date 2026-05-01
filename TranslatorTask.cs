@@ -70,6 +70,8 @@ public class TranslatorTask
     //使用半角符号
     private bool _halfWidth = true;
     private int _maxRetry = 10;
+    private int _batchTimeoutMs = 1000;
+    private long _lastAddTime = 0;
     private string _modelParams = "";
     List<TaskData> taskDatas = new List<TaskData>();
     TranslateDB translateDB = new TranslateDB();
@@ -93,6 +95,7 @@ public class TranslatorTask
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
+        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1) * 1000;
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
             context.DisableSpamChecks();
@@ -229,6 +232,7 @@ public class TranslatorTask
         lock (_lockObject)
         {
             taskDatas.Insert(0, task);
+            _lastAddTime = Environment.TickCount64;
         }
 
         // // 等待任务完成
@@ -534,6 +538,16 @@ public class TranslatorTask
                 {
                     continue;
                 }
+                int waitingCount;
+                lock (_lockObject)
+                {
+                    waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
+                }
+                if (waitingCount > 0 && Environment.TickCount64 - _lastAddTime < _batchTimeoutMs)
+                {
+                    continue;
+                }
+
                 List<List<TaskData>> taskDatass = new List<List<TaskData>>();
                 List<TaskData> tasks;
                 lock (_lockObject)
