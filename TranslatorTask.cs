@@ -232,7 +232,7 @@ public class TranslatorTask
         lock (_lockObject)
         {
             taskDatas.Insert(0, task);
-            _lastAddTime = Environment.TickCount64;
+            _lastAddTime = Environment.TickCount;
         }
 
         // // 等待任务完成
@@ -543,7 +543,7 @@ public class TranslatorTask
                 {
                     waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
                 }
-                if (waitingCount > 0 && Environment.TickCount64 - _lastAddTime < _batchTimeoutMs)
+                if (waitingCount > 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
                 {
                     continue;
                 }
