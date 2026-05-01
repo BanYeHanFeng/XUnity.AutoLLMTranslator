@@ -95,7 +95,7 @@ public class TranslatorTask
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
-        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1) * 1000;
+        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
             context.DisableSpamChecks();

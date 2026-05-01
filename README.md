@@ -54,7 +54,7 @@ HalfWidth=True
 MaxWordCount=500
 ParallelCount=3
 Interval=200
-BatchTimeout=1
+BatchTimeout=1000
 MaxRetry=10
 LogLevel=Error
 Log2File=False
@@ -85,4 +85,4 @@ Log2File=False
 >
 > | 参数 | 说明 |
 > |------|------|
-> | `BatchTimeout` | 批量翻译等待超时（秒），没有新文本传入时等待此时间后才开始翻译，默认 1 秒。 |
+> | `BatchTimeout` | 批量翻译等待超时（毫秒），没有新文本传入时等待此时间后才开始翻译，默认 1000 毫秒。 |
