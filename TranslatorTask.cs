@@ -310,10 +310,10 @@ public class TranslatorTask
             .Replace("{{GAMENAME}}", _gameName)
             .Replace("{{GAMEDESC}}", _gameDesc)
             .Replace("{{OTHER}}", _requirement)
-            .Replace("{{HISTORY}}", string.Join("\n", translateDB.Search(texts, 1000).ToArray()))
+            .Replace("{{HISTORY}}", "Provided in user message below")
             .Replace("{{TARGET_LAN}}", DestinationLanguage)
             .Replace("{{SOURCE_LAN}}", SourceLanguage)
-            .Replace("{{RECENT}}", string.Join("\n", recentTranslate.ToArray()));
+            .Replace("{{RECENT}}", "Provided in user message below");
             var otxt = "";
             int index = 1;
             foreach (var data in texts)
@@ -322,15 +322,18 @@ public class TranslatorTask
                 otxt += $"[{index}]=\"{t}\"\n";
                 index++;
             }
-            // otxt += "]";
             if (system.Contains("/no_think") || system.Contains("/nothink"))
             {
                 otxt = otxt + "\n/no_think";
             }
+            var historyText = string.Join("\n", translateDB.Search(texts, 1000).ToArray());
+            var recentText = string.Join("\n", recentTranslate.ToArray());
+            var contextContent = "#Historical Translations\n```\n" + historyText + "\n```\n\n#Recent Translations\n```\n" + recentText + "\n```";
             var messages = new List<object>
             {
                 new { role = "system", content = system },
-                new { role = "user", content = otxt}
+                new { role = "user", content = contextContent },
+                new { role = "user", content = otxt }
             };
 
             var requestBody = new Dictionary<string, object>
