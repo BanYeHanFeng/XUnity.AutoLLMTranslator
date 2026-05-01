@@ -544,11 +544,16 @@ public class TranslatorTask
                     continue;
                 }
                 int waitingCount;
+                int waitingToken = 0;
                 lock (_lockObject)
                 {
                     waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
+                    waitingToken = taskDatas
+                        .Where(t => t.state == TaskData.TaskState.Waiting)
+                        .SelectMany(t => t.texts)
+                        .Sum(txt => txt.Length);
                 }
-                if (waitingCount > 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
+                if (waitingCount > 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs && waitingToken <= _maxWordCount)
                 {
                     continue;
                 }
