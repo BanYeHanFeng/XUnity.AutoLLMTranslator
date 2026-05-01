@@ -2,6 +2,8 @@
 
 我本人并不懂代码，所有代码都用ai编程，可能会出现意料之外的bug。
 
+具体使用方法请看上游仓库(https://github.com/NothingNullNull/XUnity.AutoLLMTranslator)
+
 ## 致谢
 
 ```
