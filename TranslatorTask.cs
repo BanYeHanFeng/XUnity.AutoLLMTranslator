@@ -323,18 +323,15 @@ public class TranslatorTask
                 otxt += $"[{index}]=\"{t}\"\n";
                 index++;
             }
-            if (system.Contains("/no_think") || system.Contains("/nothink"))
-            {
-                otxt = otxt + "\n/no_think";
-            }
             var historyText = string.Join("\n", translateDB.Search(texts, 1000).ToArray());
             var recentText = string.Join("\n", recentTranslate.ToArray());
             var contextContent = "#Historical Translations\n```\n" + historyText + "\n```\n\n#Recent Translations\n```\n" + recentText + "\n```";
+            var combinedContent = otxt + "\n\n" + contextContent;
             var messages = new List<object>
             {
                 new { role = "system", content = system },
-                new { role = "user", content = otxt },
-                new { role = "user", content = contextContent }
+                new { role = "user", content = "Please translate the following game texts." },
+                new { role = "user", content = combinedContent }
             };
 
             var requestBody = new Dictionary<string, object>
