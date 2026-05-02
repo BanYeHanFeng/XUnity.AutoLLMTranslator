@@ -14,13 +14,26 @@ NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
 
 ## 主要优化
 
-| 优化 | 说明 |
-|------|------|
-| JSON Output 模式 | 使用 `response_format: {"type": "json_object"}`，输出结构化 JSON，解析更稳定 |
-| 连续对话历史 | 保留最近 N 轮翻译历史作为多轮对话上下文，替代原来的模糊搜索翻译DB |
-| 上下文缓存命中 | 对话前缀固定 → 自动触发 DeepSeek KV 缓存（缓存命中 0.02元 vs 未命中 1元/百万token） |
-| 移除 FuzzyString | 移除整个模糊字符串匹配库（不再需要） |
-| 移除文件扫描 | 不再扫描游戏翻译目录，启动更快 |
+### 翻译质量与格式
+- JSON Output 模式（`response_format: {"type": "json_object"}`），输出结构化 JSON，解析更稳定
+- 连续对话历史替代历史翻译/模糊搜索，保留翻译轮次作为上下文，自动触发 DeepSeek KV 缓存（缓存命中 0.02元 vs 未命中 1元/百万token）
+- 移除硬编码的 temperature/max_tokens 参数，由 API 和 ModelParams 控制
+- History 配置（0=禁用，-1=无限制，正数=N 轮），灵活控制上下文长度
+
+### 批处理调度
+- BatchTimeout 独立超时机制：新文本传入重置定时器，超时后自动发送
+- MaxWordCount 超限立即触发发送，无需等待 BatchTimeout
+- 修复并行发送失效问题，多批次可同时发送
+
+### 兼容与稳定性
+- 兼容 .NET 3.5（Environment.TickCount 替代 TickCount64）
+- CI 跳过 ILRepack 避免 Mono.Cecil 兼容性问题
+- CI 移除 Setup .NET 步骤，直接使用预装 SDK，节省约 46 秒
+
+### 精简
+- 移除 FuzzyString 模糊匹配库
+- 移除文件式翻译DB扫描
+- 移除 AGENTS.md 遗留文件
 
 ## 配置
 
