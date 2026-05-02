@@ -33,7 +33,6 @@ NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
 ### 精简
 - 移除 FuzzyString 模糊匹配库
 - 移除文件式翻译DB扫描
-- 移除 AGENTS.md 遗留文件
 
 ## 配置
 
@@ -61,6 +60,8 @@ URL=http://localhost:11434/v1
 ```
 
 ### 配置说明
+
+> **注意：本插件使用 JSON Output 模式（`response_format: {"type": "json_object"}`），需模型支持该功能（DeepSeek、OpenAI 等支持，部分本地模型可能不支持）。**
 
 | 参数 | 作用 | 默认值 |
 |------|------|--------|
