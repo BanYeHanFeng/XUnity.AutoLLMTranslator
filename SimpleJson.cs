@@ -271,5 +271,20 @@ internal static class SimpleJson
         return items;
     }
 
+    /// <summary>Parse a JSON string into a Dictionary. Top-level value must be a JSON object.</summary>
+    public static Dictionary<string, object> ParseJsonObject(string json)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(json)) return new Dictionary<string, object>();
+            int pos = SkipWhitespace(json, 0);
+            return ParseObject(json, ref pos);
+        }
+        catch
+        {
+            return new Dictionary<string, object>();
+        }
+    }
+
     #endregion
 }

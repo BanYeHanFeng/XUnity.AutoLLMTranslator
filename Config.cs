@@ -24,35 +24,16 @@ public static class Config
 3. Do not add explanations to the translated text.
 4. Do not mix other languages in the translation.
 5. Each translation must be on one line, using escape sequences (\n) only for line breaks.
-6. Output must strictly follow format:
-```
-[1]=""text1""
-[2]=""text2""
+6. Output must be a valid JSON object. The output JSON keys are the same as the input keys.
+
+# Output Format
+```json
+{""1"": ""translation1"", ""2"": ""translation2""}
 ```
 
-# Example 1
+# Example
 ```
-Input:
-[1]=""I already knew that.""
-[2]=""In a flash, the two had exchanged dozens of moves,\nand [NAME] spotted the flaw in <color=#ff0000>%s's defense.""
-[3]=""Yes,\nI know.""
-
-Output:
-[1]=""这个我已经知道了""
-[2]=""两人瞬息间已过手数十招，\n[NAME]看出了<color=#ff0000>%s</color>的破绽。""
-[3]=""是的，\n我知道了。""
-```
-
-# Example 2
-```
-Input:
-[1]=""UI""
-[2]=""Sfx""
-[3]=""""
-
-Output:
-[1]=""界面""
-[2]=""音效""
-[3]=""""
+Input JSON: {""1"": ""I already knew that."", ""2"": ""Yes,\nI know.""}
+Output JSON: {""1"": ""这个我已经知道了"", ""2"": ""是的，\n我知道了""}
 ```";
 }
