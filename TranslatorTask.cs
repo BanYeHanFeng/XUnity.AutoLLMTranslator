@@ -313,10 +313,8 @@ public class TranslatorTask
             .Replace("{{GAMENAME}}", _gameName)
             .Replace("{{GAMEDESC}}", _gameDesc)
             .Replace("{{OTHER}}", _requirement)
-            .Replace("{{HISTORY}}", "Provided in user message below")
             .Replace("{{TARGET_LAN}}", DestinationLanguage)
-            .Replace("{{SOURCE_LAN}}", SourceLanguage)
-            .Replace("{{RECENT}}", "Provided in user message below");
+            .Replace("{{SOURCE_LAN}}", SourceLanguage);
             var otxt = "";
             int index = 1;
             foreach (var data in texts)
@@ -335,8 +333,8 @@ public class TranslatorTask
             var messages = new List<object>
             {
                 new { role = "system", content = system },
-                new { role = "user", content = contextContent },
-                new { role = "user", content = otxt }
+                new { role = "user", content = otxt },
+                new { role = "user", content = contextContent }
             };
 
             var requestBody = new Dictionary<string, object>
