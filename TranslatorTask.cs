@@ -62,7 +62,7 @@ public class TranslatorTask
     private string? _terminology;
     private string? _gameName;
     private string? _gameDesc;
-    private int _maxWordCount = 2000;
+    private int _maxWordCount = 2500;
     private int _parallelCount = 10;
     private int _pollingInterval = 1000;
     private string? DestinationLanguage;
@@ -77,7 +77,7 @@ public class TranslatorTask
     List<TaskData> taskDatas = new List<TaskData>();
     TranslateDB translateDB = new TranslateDB();
     HttpListener listener = new HttpListener();
-    private int _historyTurns = 10;
+    private int _historyTurns = -1;
     List<object> _conversationHistory = new List<object>();
     readonly object _historyLock = new object();
 
@@ -91,14 +91,14 @@ public class TranslatorTask
         _terminology = context.GetOrCreateSetting("AutoLLM", "Terminology", "");
         _gameName = context.GetOrCreateSetting("AutoLLM", "GameName", "A Game");
         _gameDesc = context.GetOrCreateSetting("AutoLLM", "GameDesc", "");
-        _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 500);
+        _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 3);
         _pollingInterval = context.GetOrCreateSetting("AutoLLM", "Interval", 200);
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
-        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", 10);
+        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {

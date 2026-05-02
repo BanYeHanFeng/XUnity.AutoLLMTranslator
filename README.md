@@ -12,6 +12,16 @@ XUnity.AutoTranslator 该插件基于此项目开发
 NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
 ```
 
+## 主要优化
+
+| 优化 | 说明 |
+|------|------|
+| JSON Output 模式 | 使用 `response_format: {"type": "json_object"}`，输出结构化 JSON，解析更稳定 |
+| 连续对话历史 | 保留最近 N 轮翻译历史作为多轮对话上下文，替代原来的模糊搜索翻译DB |
+| 上下文缓存命中 | 对话前缀固定 → 自动触发 DeepSeek KV 缓存（缓存命中 0.02元 vs 未命中 1元/百万token） |
+| 移除 FuzzyString | 移除整个模糊字符串匹配库（不再需要） |
+| 移除文件扫描 | 不再扫描游戏翻译目录，启动更快 |
+
 ## 配置
 
 在 `Config.ini` 文件中修改以下配置：
@@ -50,7 +60,7 @@ URL=http://localhost:11434/v1
 | `GameDesc` | 游戏描述，帮助 AI 更准确翻译 | 空 |
 | `ModelParams` | 额外模型参数，JSON 格式，会合并到请求体中 | 空 |
 | `HalfWidth` | 全角符号自动转半角 | `True` |
-| `MaxWordCount` | 每批最大字符数，达到此值立即发送 | `500` |
+| `MaxWordCount` | 每批最大字符数，达到此值立即发送 | `2500` |
 | `ParallelCount` | 最大并发翻译请求数 | `3` |
 | `Interval` | 轮询间隔（毫秒） | `200` |
 | `MaxRetry` | 翻译失败最大重试次数 | `10` |
@@ -63,4 +73,4 @@ URL=http://localhost:11434/v1
 > | 参数 | 作用 | 默认值 |
 > |------|------|--------|
 > | `BatchTimeout` | 无新文本时的等待超时（毫秒），到期后即使未达到 MaxWordCount 也会发送 | `1000` |
-> | `History` | 对话历史保留轮数，0=禁用，-1=无限制，正数=保留最近 N 轮。用于提高 API 缓存命中率 | `10` |
+> | `History` | 对话历史保留轮数，0=禁用，-1=无限制，正数=保留最近 N 轮。用于提高 API 缓存命中率 | `-1` |
