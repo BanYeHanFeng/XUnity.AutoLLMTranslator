@@ -421,15 +421,15 @@ public class TranslatorTask
                     Logger.Debug($"{hashkey} 流OK: {rs}");
                     i++;
                 }
-            }
 
-            if (_historyTurns != 0)
-            {
-                lock (_historyLock)
+                if (_historyTurns != 0)
                 {
-                    _conversationHistory.Add(new { role = "user", content = inputJson });
-                    _conversationHistory.Add(new { role = "assistant", content = fullResponse });
-                    TrimHistory();
+                    lock (_historyLock)
+                    {
+                        _conversationHistory.Add(new { role = "user", content = inputJson });
+                        _conversationHistory.Add(new { role = "assistant", content = fullResponse });
+                        TrimHistory();
+                    }
                 }
             }
 
