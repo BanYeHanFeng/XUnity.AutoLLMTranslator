@@ -337,8 +337,6 @@ public class TranslatorTask
             var requestBody = new Dictionary<string, object>
             {
                 { "model", _model },
-                { "temperature", 0.1 },
-                { "max_tokens", 4000 },
                 { "messages", messages }
             };
             if (!string.IsNullOrEmpty(_modelParams))
