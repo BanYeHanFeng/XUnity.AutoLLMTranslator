@@ -34,14 +34,15 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `ParseTexts(string)` | Parses `{"texts": [...]}` back into `string[]` |
 | `ParseSseContent(string)` | Extracts `choices[0].delta.content` from SSE stream chunks |
 | `ParseModelParams(string)` | Parses JSON into `Dictionary<string, object>` for ModelParams config |
+| `ParseJsonObject(string)` | Parses any JSON string into `Dictionary<string, object>` |
 
 ## SSE Streaming & Response Parsing
 
-The LLM API response is consumed as a Server-Sent Events (SSE) stream. Each `data: {...}` line is parsed by `SimpleJson.ParseSseContent()`. The content is accumulated line-by-line, and completed translations are matched via the regex `\[(\d+)\]="(.*?)"`. Key details:
+The LLM API response is consumed as a Server-Sent Events (SSE) stream. Each `data: {...}` line is parsed by `SimpleJson.ParseSseContent()`. Content is accumulated across all chunks. When `[DONE]` is received, the complete JSON response is parsed via `SimpleJson.ParseJsonObject()` into a `{"1": "translation", "2": "translation"}` dictionary. Key details:
 
-- `thinking` / `response` tags (from DeepSeek-style models) and `<context_think>` XML tags are stripped from the stream before parsing
+- Uses `response_format: {"type": "json_object"}` (JSON Output mode) for structured output
 - Full-width characters are converted to half-width if `HalfWidth=True`
-- Each completed translation is immediately returned to the caller (`TaskRespond`) — streaming in-progress
+- After a successful batch, the user input JSON and assistant response JSON are appended to `_conversationHistory` for continuous dialogue
 - Failed translations within a batch are retried individually (up to `MaxRetry` times)
 
 ## Batching & Polling
@@ -62,8 +63,8 @@ A C# .NET Framework 3.5 plugin for [XUnity.AutoTranslator](https://github.com/bb
 |---|---|
 | `AutoLLMTranslatorEndpoint.cs` | Entrypoint. Registers `LLMTranslatorEndpoint` as the `AutoLLMTranslate` endpoint (set `Endpoint=AutoLLMTranslate` in Config.ini). Extends `WwwEndpoint` with `MaxTranslationsPerRequest = 1` and `MaxConcurrency = 500` |
 | `TranslatorTask.cs` | Core engine: HTTP server on `127.0.0.1:20000`, batching, retry/backoff, streaming SSE parsing from LLM API |
-| `Config.cs` | Static class holding the LLM system prompt template. Uses `{{PLACEHOLDER}}` variables: `SOURCE_LAN`, `TARGET_LAN`, `OTHER`, `GAMENAME`, `GAMEDESC`, `HISTORY`, `RECENT` |
-| `TranslateDB.cs` | Translation cache: loads existing translations from text files, provides fuzzy-search lookup via `FuzzyString` library, supports terminology matching via `==` format |
+| `Config.cs` | Static class holding the LLM system prompt template. Uses `{{PLACEHOLDER}}` variables: `SOURCE_LAN`, `TARGET_LAN`, `OTHER`, `GAMENAME`, `GAMEDESC` |
+| `TranslateDB.cs` | Terminology-only dictionary for exact-match glossary lookups. Supports `Lorien==罗林\|Skadi==斯卡蒂` format |
 | `SimpleJson.cs` | Minimal JSON serializer/parser — used for both LLM API communication and text array serialization |
 | `Logger.cs` | Logging wrapper around `XuaLogger.Common`. Supports file output. Levels: Error, Warning, Info, Debug, Null |
 
@@ -72,8 +73,9 @@ A C# .NET Framework 3.5 plugin for [XUnity.AutoTranslator](https://github.com/bb
 1. **Endpoint registration**: XUnity.AutoTranslator calls `OnCreateRequest` with untranslated game text
 2. **Local HTTP hop**: endpoint serializes the text and sends a POST to the local `HttpListener` on port 20000
 3. **Batching**: `TranslatorTask` collects texts into batches (up to `MaxWordCount` chars or `BatchTimeout` ms of inactivity), then sends them as a single LLM API call
-4. **Streaming SSE**: reads the LLM response via SSE, parses `[N]="translation"` lines incrementally, marks each task complete as its translation arrives
-5. **Fuzzy cache**: `TranslateDB` stores translations by source text hash; `Search()` uses fuzzy string comparison from `FuzzyString/` to retrieve relevant historical translations as context for the LLM
+4. **JSON Output mode**: Sends with `response_format: {"type": "json_object"}`. Input is `{"1": "text1", "2": "text2"}` JSON. Conversation history (previous user/assistant turns) is included for cache context
+5. **Streaming SSE + bulk parse**: accumulates all SSE content, then parses the complete JSON response as `{"1": "translation1", "2": "translation2"}`
+6. **Terminology override**: `TranslateDB` checks exact-match terminology and overrides if found
 
 ### Concurrency Model
 
@@ -95,10 +97,13 @@ A C# .NET Framework 3.5 plugin for [XUnity.AutoTranslator](https://github.com/bb
 | `BatchTimeout` | Max ms to wait before dispatching a partial batch |
 | `ParallelCount` | Max concurrent LLM requests |
 | `ModelParams` | Extra JSON params merged into the request body |
+| `History` | Conversation history turns. 0=disabled, -1=unlimited, positive=N turns. Default 10 |
 
 ### Important Conventions
 
 - **No tests in this repo**
 - Prompt uses `{{PLACEHOLDER}}` template variables only
-- The `FuzzyString/` directory is an in-source copy of the FuzzyString library (not a NuGet package)
 - Terminology `==` format with `|` separator between entries
+- **Uses `response_format: {"type": "json_object"}`** — the prompt must contain the word `json` (it does, in the Output Format section)
+- **Continuous conversation** via `_conversationHistory` list: each batch appends user input JSON and assistant output JSON. Previous turns are prepended as `role: user` / `role: assistant` messages before the current user message for better KV cache hit rates
+- **`FuzzyString/` has been removed** — no longer needed; file-based translation DB lookup and fuzzy search were replaced by continuous conversation history

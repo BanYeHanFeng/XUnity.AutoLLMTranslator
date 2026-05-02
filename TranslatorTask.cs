@@ -2,7 +2,6 @@
 using System.Text.RegularExpressions;
 using XUnity.AutoTranslator.Plugin.Core.Endpoints;
 using System.Text;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -78,8 +77,9 @@ public class TranslatorTask
     List<TaskData> taskDatas = new List<TaskData>();
     TranslateDB translateDB = new TranslateDB();
     HttpListener listener = new HttpListener();
-    //最近翻译
-    List<string> recentTranslate = new List<string>();
+    private int _historyTurns = 10;
+    List<object> _conversationHistory = new List<object>();
+    readonly object _historyLock = new object();
 
     private int _currentKeyIndex = 0;
     public void Init(IInitializationContext context)
@@ -98,6 +98,7 @@ public class TranslatorTask
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
+        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", 10);
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
@@ -250,22 +251,18 @@ public class TranslatorTask
         return task;
     }
 
-    private string EscapeSpecialCharacters(string text)
+    private string BuildInputJson(List<string> texts)
     {
-        //将换行进行转义
-        text = text.Replace("\n", "\\n");
-        text = text.Replace("\r", "\\r");
-        text = text.Replace("\"", "<quote>");
-        return text;
-    }
-
-    private string UnEscapeSpecialCharacters(string text)
-    {
-        //将换行进行转义
-        text = text.Replace("\\n", "\n");
-        text = text.Replace("\\r", "\r");
-        text = text.Replace("<quote>", "\"");
-        return text;
+        var sb = new StringBuilder();
+        sb.Append('{');
+        for (int i = 0; i < texts.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append('"').Append(i + 1).Append("\":");
+            sb.Append(SimpleJson.Serialize(texts[i]));
+        }
+        sb.Append('}');
+        return sb.ToString();
     }
 
     int curProcessingCount = 0;
@@ -315,29 +312,22 @@ public class TranslatorTask
             .Replace("{{OTHER}}", _requirement)
             .Replace("{{TARGET_LAN}}", DestinationLanguage)
             .Replace("{{SOURCE_LAN}}", SourceLanguage);
-            var otxt = "";
-            int index = 1;
-            foreach (var data in texts)
+            var inputJson = BuildInputJson(texts);
+
+            var messages = new List<object>();
+            messages.Add(new { role = "system", content = system });
+            lock (_historyLock)
             {
-                var t = EscapeSpecialCharacters(data);
-                otxt += $"[{index}]=\"{t}\"\n";
-                index++;
+                foreach (var msg in _conversationHistory)
+                    messages.Add(msg);
             }
-            var historyText = string.Join("\n", translateDB.Search(texts, 1000).ToArray());
-            var recentText = string.Join("\n", recentTranslate.ToArray());
-            var contextContent = "#Historical Translations\n```\n" + historyText + "\n```\n\n#Recent Translations\n```\n" + recentText + "\n```";
-            var combinedContent = otxt + "\n\n" + contextContent;
-            var messages = new List<object>
-            {
-                new { role = "system", content = system },
-                new { role = "user", content = "Please translate the following game texts." },
-                new { role = "user", content = combinedContent }
-            };
+            messages.Add(new { role = "user", content = inputJson });
 
             var requestBody = new Dictionary<string, object>
             {
                 { "model", _model },
-                { "messages", messages }
+                { "messages", messages },
+                { "response_format", new Dictionary<string, object> { { "type", "json_object" } } }
             };
             if (!string.IsNullOrEmpty(_modelParams))
             {
@@ -378,10 +368,8 @@ public class TranslatorTask
             using (var stream = response.GetResponseStream())
             using (var reader = new StreamReader(stream))
             {
-                var lineResponse = "";
                 var fullResponse = "";
                 string line;
-                var i = 0;
                 while ((line = reader.ReadLine()) != null)
                 {
                     if (string.IsNullOrEmpty(line)) continue;
@@ -394,81 +382,7 @@ public class TranslatorTask
                     {
                         var content = SimpleJson.ParseSseContent(data);
                         if (!string.IsNullOrEmpty(content))
-                        {
-                            lineResponse += content;
-                            //Log($"流: {content} ::: {lineResponse}");
                             fullResponse += content;
-                            if (lineResponse.Contains("</think>"))
-                                lineResponse = Regex.Replace(lineResponse, "<think>.*?</think>", "", RegexOptions.Singleline);
-                            if (lineResponse.Contains("</context_think>"))
-                                lineResponse = Regex.Replace(lineResponse, "<context_think>.*?</context_think>", "", RegexOptions.Singleline);
-                            if (string.IsNullOrEmpty(lineResponse))
-                                continue;
-                            Logger.Debug($"{hashkey} 流0: |{lineResponse}|");
-                            var lineResponseTxts = lineResponse.Split('\n');
-                            int point = 0;
-                            foreach (var txt in lineResponseTxts)
-                            {
-                                Logger.Debug($"{hashkey} 流1: |{txt}| len: {txt.Length}");
-                                point += Math.Max(1, txt.Length);
-                                var rs = txt.Trim();
-                                if (rs.Contains("<context_think>") || rs.Contains("</context_think>") || rs.Contains("<think>") || rs.Contains("</think>"))
-                                    continue;
-                                if (rs.Length == 0 || rs.IndexOf('\"') < 0)
-                                {
-                                    continue;
-                                }
-                                if (rs.Count(c => c == '\"') < 2)
-                                {
-                                    continue;
-                                }
-                                if (rs.EndsWith("\""))
-                                {
-                                    Logger.Debug($"{hashkey} 流2: {rs}");
-                                    var match = Regex.Match(rs, @"\[(\d+)\]=""(.*?)""");
-                                    if (!match.Success)
-                                    {
-                                        throw new Exception($"翻译结果错误 1: {fullResponse}");
-                                    }
-                                    var num = -1;
-                                    int.TryParse(match.Groups[1].Value, out num);
-                                    if (num < 1 || num > tasks.Count)
-                                    {
-                                        throw new Exception($"翻译结果错误 2: {fullResponse}");
-                                    }
-                                    rs = match.Groups[2].Value;
-                                    if (string.IsNullOrEmpty(rs))
-                                    {
-                                        throw new Exception($"翻译结果错误 3: {fullResponse}");
-                                    }
-                                    if (_halfWidth)
-                                    {
-                                        //将全角符号转换为半角符号
-                                        rs = Regex.Replace(rs, @"[！＂＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]", m => ((char)(m.Value[0] - 0xFEE0)).ToString());
-                                    }
-                                    rs = UnEscapeSpecialCharacters(rs);
-                                    //Log($"流2: {lineResponse}");
-                                    var task = tasks[num - 1];
-                                    task.result = new string[] { translateDB.FindTerminology(task.texts[0]) ?? rs };
-                                    task.state = TaskData.TaskState.Completed;
-                                    TaskRespond(task);
-                                    Logger.Debug($"{hashkey} 流OK: {rs}");
-                                    lock (recentTranslate)
-                                    {
-                                        if (recentTranslate.Count > 10)
-                                            recentTranslate.RemoveAt(0);
-                                        recentTranslate.Add($"{task.texts[0]} === {task.result[0]}");
-                                    }
-                                    if (translateDB.AddData(task.texts[0], task.result[0]))
-                                        translateDB.SortData();
-                                    i++;
-                                    var hlineResponse = lineResponse;
-                                    lineResponse = lineResponse.Substring(point);
-                                    Logger.Debug($"{hashkey} 流截取后: {lineResponse}|olen:{hlineResponse.Length} | point: {point}");
-                                    point = 0;
-                                }
-                            }
-                        }
                     }
                     catch (Exception ex)
                     {
@@ -477,6 +391,46 @@ public class TranslatorTask
                 }
 
                 Logger.Debug($"full流: {fullResponse}");
+
+                if (string.IsNullOrEmpty(fullResponse))
+                    throw new Exception("翻译结果为空");
+
+                var resultObj = SimpleJson.ParseJsonObject(fullResponse);
+                if (resultObj == null || resultObj.Count == 0)
+                    throw new Exception($"JSON结果解析失败: {fullResponse}");
+
+                int i = 0;
+                foreach (var kvp in resultObj)
+                {
+                    int num;
+                    if (!int.TryParse(kvp.Key, out num)) continue;
+                    if (num < 1 || num > tasks.Count) continue;
+
+                    var rs = kvp.Value as string;
+                    if (string.IsNullOrEmpty(rs)) continue;
+
+                    if (_halfWidth)
+                    {
+                        rs = Regex.Replace(rs, @"[！＂＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]", m => ((char)(m.Value[0] - 0xFEE0)).ToString());
+                    }
+
+                    var task = tasks[num - 1];
+                    task.result = new string[] { translateDB.FindTerminology(task.texts[0]) ?? rs };
+                    task.state = TaskData.TaskState.Completed;
+                    TaskRespond(task);
+                    Logger.Debug($"{hashkey} 流OK: {rs}");
+                    i++;
+                }
+            }
+
+            if (_historyTurns != 0)
+            {
+                lock (_historyLock)
+                {
+                    _conversationHistory.Add(new { role = "user", content = inputJson });
+                    _conversationHistory.Add(new { role = "assistant", content = fullResponse });
+                    TrimHistory();
+                }
             }
 
         }
@@ -524,6 +478,16 @@ public class TranslatorTask
             }
             lock (_lockObject)
                 curProcessingCount--;
+        }
+    }
+
+    void TrimHistory()
+    {
+        if (_historyTurns > 0)
+        {
+            int maxPairs = _historyTurns;
+            while (_conversationHistory.Count > maxPairs * 2)
+                _conversationHistory.RemoveAt(0);
         }
     }
 
