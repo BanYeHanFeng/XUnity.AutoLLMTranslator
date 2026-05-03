@@ -42,6 +42,8 @@
   - `BatchTimeout` 与 `MaxWordCount` 双条件触发发送。
   - 修复并行发送失效问题，多批次可同时请求。
   - `ParallelCount` 默认值改为 `1`，避免并行导致对话历史交错、KV 缓存前缀无法命中。
+- **Bug 修复**
+  - 修复 `TryRespond` 成功后 state `Completed`→`Closed`，finally 块只检查 `!= Completed` 导致成功翻译的任务被误判为失败重试、每批次浪费一倍 token（上游遗留 bug）。
 - **兼容与精简**
   - 兼容 .NET 3.5（`Environment.TickCount` 替代 `TickCount64`）。
   - CI 跳过 ILRepack，避免 Mono.Cecil 兼容性问题，并移除 Setup .NET 步骤以加速构建。
