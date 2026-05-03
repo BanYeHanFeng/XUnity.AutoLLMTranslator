@@ -279,15 +279,15 @@ public class TranslatorTask
 
             if (_maxContext > 0 && _historyTurns != 0)
             {
-                int totalChars = system.Length + inputJson.Length;
+                int estimatedChars = system.Length + inputJson.Length;
                 lock (_historyLock)
                 {
                     foreach (var msg in _conversationHistory)
                     {
                         if (msg is Dictionary<string, object> dict && dict.ContainsKey("content"))
-                            totalChars += (dict["content"] as string)?.Length ?? 0;
+                            estimatedChars += (dict["content"] as string)?.Length ?? 0;
                     }
-                    if (totalChars / 2 > _maxContext)
+                    if (estimatedChars / 2 > _maxContext)
                     {
                         _conversationHistory.Clear();
                         Logger.Info($"历史超出 MaxContext({_maxContext})，已清空对话历史");
