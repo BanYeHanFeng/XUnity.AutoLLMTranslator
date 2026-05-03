@@ -77,6 +77,10 @@ public class TranslatorTask
     HttpListener listener;
     List<object> _conversationHistory = new List<object>();
     readonly object _historyLock = new object();
+    long _totalInputTokens = 0;
+    long _totalOutputTokens = 0;
+    long _totalCacheHitTokens = 0;
+    long _totalCacheMissTokens = 0;
 
     public void Init(IInitializationContext context)
     {
@@ -325,7 +329,9 @@ public class TranslatorTask
             }
 
             var totalChars = texts.Sum(t => t.Length);
-            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 并行 {curProcessingCount}/{_parallelCount}");
+            var historyTurns = 0;
+            lock (_historyLock) { historyTurns = _conversationHistory.Count / 2; }
+            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{historyTurns}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
 
 
@@ -340,6 +346,7 @@ public class TranslatorTask
             // 写入请求体
             requestBody.Add("stream", true);
             var requestJson = SimpleJson.Serialize(requestBody);
+            Logger.Debug($"请求体大小: {requestJson.Length} chars");
             using (var streamWriter = new StreamWriter(request.GetRequestStream()))
             {
                 streamWriter.Write(requestJson);
@@ -351,6 +358,8 @@ public class TranslatorTask
             using (var reader = new StreamReader(stream))
             {
                 var fullResponse = new StringBuilder();
+                var usage = new Dictionary<string, object>();
+                int chunkCount = 0;
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -360,11 +369,16 @@ public class TranslatorTask
                     var data = line.Substring(6);
                     if (data == "[DONE]") break;
 
+                    chunkCount++;
                     try
                     {
                         var content = SimpleJson.ParseSseContent(data);
                         if (!string.IsNullOrEmpty(content))
                             fullResponse.Append(content);
+
+                        var chunkUsage = SimpleJson.ParseSseUsage(data);
+                        if (chunkUsage != null)
+                            usage = chunkUsage;
                     }
                     catch (Exception ex)
                     {
@@ -373,7 +387,25 @@ public class TranslatorTask
                 }
 
                 var fullResponseStr = fullResponse.ToString();
-                Logger.Debug($"full流: {fullResponseStr}");
+                Logger.Debug($"full流({fullResponseStr.Length} chars, {chunkCount} chunks): {fullResponseStr}");
+
+                long promptTokens = 0, completionTokens = 0, cacheHit = 0, cacheMiss = 0;
+                if (usage.ContainsKey("prompt_tokens"))
+                {
+                    promptTokens = Convert.ToInt64(usage["prompt_tokens"]);
+                    completionTokens = usage.ContainsKey("completion_tokens") ? Convert.ToInt64(usage["completion_tokens"]) : 0;
+                    if (usage.ContainsKey("prompt_cache_hit_tokens"))
+                        cacheHit = Convert.ToInt64(usage["prompt_cache_hit_tokens"]);
+                    if (usage.ContainsKey("prompt_cache_miss_tokens"))
+                        cacheMiss = Convert.ToInt64(usage["prompt_cache_miss_tokens"]);
+                }
+
+                _totalInputTokens += promptTokens;
+                _totalOutputTokens += completionTokens;
+                _totalCacheHitTokens += cacheHit;
+                _totalCacheMissTokens += cacheMiss;
+
+                Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} 缓存命中{cacheHit} 缓存未中{cacheMiss} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
 
                 if (string.IsNullOrEmpty(fullResponseStr))
                     throw new Exception("翻译结果为空");
@@ -401,9 +433,10 @@ public class TranslatorTask
                     task.result = new string[] { rs };
                     task.state = TaskData.TaskState.Completed;
                     TaskRespond(task);
-                    Logger.Debug($"{hashkey} 流OK: {rs}");
+                    Logger.Debug($"{hashkey} 流OK [{num}]: {rs}");
                     i++;
                 }
+                Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
 
                 if (_historyTurns != 0)
                 {
@@ -412,6 +445,7 @@ public class TranslatorTask
                         _conversationHistory.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
                         _conversationHistory.Add(new Dictionary<string, object> { {"role", "assistant"}, {"content", fullResponseStr} });
                         TrimHistory();
+                        Logger.Debug($"对话历史轮数: {_conversationHistory.Count / 2}");
                     }
                 }
             }
@@ -438,27 +472,30 @@ public class TranslatorTask
         }
         finally
         {
-            Logger.Debug($"翻译结束:" + hashkey);
+            Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
+            int retried = 0, failed = 0;
             foreach (var task in tasks)
             {
-                //失败了重新翻译
                 if (task.state != TaskData.TaskState.Completed)
                 {
                     task.retryCount++;
                     if (task.retryCount < _maxRetry)
                     {
-                        Logger.Debug($"重新翻译:" + task.texts[0]);
+                        Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
                         task.state = TaskData.TaskState.Waiting;
                         task.result = null;
+                        retried++;
                     }
                     else
                     {
-                        Logger.Error($"重试翻译依然失败，没救了:" + task.texts[0]);
+                        Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
                         task.state = TaskData.TaskState.Failed;
                         TaskRespond(task);
+                        failed++;
                     }
                 }
             }
+            if (retried > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
             lock (_lockObject)
                 curProcessingCount--;
         }
