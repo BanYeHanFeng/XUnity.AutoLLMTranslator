@@ -396,10 +396,11 @@ public class TranslatorTask
                 {
                     promptTokens = Convert.ToInt64(usage["prompt_tokens"]);
                     completionTokens = usage.ContainsKey("completion_tokens") ? Convert.ToInt64(usage["completion_tokens"]) : 0;
-                    if (usage.ContainsKey("prompt_cache_hit_tokens"))
-                        cacheHit = Convert.ToInt64(usage["prompt_cache_hit_tokens"]);
-                    if (usage.ContainsKey("prompt_cache_miss_tokens"))
-                        cacheMiss = Convert.ToInt64(usage["prompt_cache_miss_tokens"]);
+                    if (usage.ContainsKey("prompt_cache_hit_tokens") || usage.ContainsKey("prompt_cache_miss_tokens"))
+                    {
+                        cacheHit = usage.ContainsKey("prompt_cache_hit_tokens") ? Convert.ToInt64(usage["prompt_cache_hit_tokens"]) : 0;
+                        cacheMiss = usage.ContainsKey("prompt_cache_miss_tokens") ? Convert.ToInt64(usage["prompt_cache_miss_tokens"]) : 0;
+                    }
                 }
 
                 _totalInputTokens += promptTokens;
@@ -482,26 +483,25 @@ public class TranslatorTask
             int retried = 0, failed = 0;
             foreach (var task in tasks)
             {
-                if (task.state != TaskData.TaskState.Completed)
+                if (task.state == TaskData.TaskState.Completed || task.state == TaskData.TaskState.Closed)
+                    continue;
+                task.retryCount++;
+                if (task.retryCount < _maxRetry)
                 {
-                    task.retryCount++;
-                    if (task.retryCount < _maxRetry)
-                    {
-                        Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
-                        task.state = TaskData.TaskState.Waiting;
-                        task.result = null;
-                        retried++;
-                    }
-                    else
-                    {
-                        Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
-                        task.state = TaskData.TaskState.Failed;
-                        TaskRespond(task);
-                        failed++;
-                    }
+                    Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
+                    task.state = TaskData.TaskState.Waiting;
+                    task.result = null;
+                    retried++;
+                }
+                else
+                {
+                    Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
+                    task.state = TaskData.TaskState.Failed;
+                    TaskRespond(task);
+                    failed++;
                 }
             }
-            if (retried > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
+            if (retried > 0 || failed > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
             lock (_lockObject)
                 curProcessingCount--;
         }
