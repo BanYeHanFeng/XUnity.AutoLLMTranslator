@@ -58,7 +58,6 @@ public class TranslatorTask
     private string? _apiKey;
     private string? _model;
     private string? _url;
-    private int _pollingInterval = 1000;
     private int _batchTimeoutMs = 1000;
     private int _maxWordCount = 2500;
     private int _historyTurns = -1;
@@ -81,7 +80,6 @@ public class TranslatorTask
         _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
-        _pollingInterval = context.GetOrCreateSetting("AutoLLM", "Interval", 200);
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
@@ -478,7 +476,7 @@ public class TranslatorTask
             try
             {
 
-                Thread.Sleep(_pollingInterval);
+                Thread.Sleep(50);
                 Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
                 if (curProcessingCount >= _parallelCount)
                 {
