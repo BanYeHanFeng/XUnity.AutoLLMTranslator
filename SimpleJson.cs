@@ -156,6 +156,22 @@ internal static class SimpleJson
         }
     }
 
+    /// <summary>Extract usage info (prompt_tokens, completion_tokens, cache hit/miss) from SSE chunk.</summary>
+    public static Dictionary<string, object> ParseSseUsage(string json)
+    {
+        try
+        {
+            int pos = SkipWhitespace(json, 0);
+            var obj = ParseObject(json, ref pos);
+            if (obj == null || !obj.ContainsKey("usage")) return null;
+            return obj["usage"] as Dictionary<string, object>;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static int SkipWhitespace(string s, int pos)
     {
         while (pos < s.Length && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r'))
