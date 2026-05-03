@@ -16,7 +16,6 @@
 | Model | 模型名称，需模型支持JSON Output | （无） |
 | URL | API 地址，以 `/v1` 或 `/chat/completions` 结尾 | （无） |
 | APIKey | API 密钥 | （无） |
-| Interval | 轮询间隔（毫秒） | `200` |
 | BatchTimeout | 等待新文本定时器，超时后处理文本（毫秒） | `1000` |
 | MaxWordCount | 每批最大字符数，达到即处理 | `2500` |
 | History | 对话历史保留轮数：`0`=禁用，`-1`=无限制（推荐），正数=保留最近 N 轮。<br>设为正数会破坏缓存前缀连续性，大幅降低缓存命中率 | `-1` |
@@ -45,6 +44,7 @@
   - 兼容 .NET 3.5（`Environment.TickCount` 替代 `TickCount64`）。
   - CI 跳过 ILRepack，避免 Mono.Cecil 兼容性问题，并移除 Setup .NET 步骤以加速构建。
   - 移除 FuzzyString 模糊匹配库及文件式翻译数据库扫描。
+  - 移除 Interval 配置，由 BatchTimeout 完全替代轮询合并功能。
   - 移除 GameName、GameDesc、Requirement prompt 占位符。
   - 移除 Terminology 术语表模块。
   - APIKey 改为单 key 配置。
