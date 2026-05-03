@@ -36,25 +36,23 @@ NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
 
 ## 配置
 
-在 `AutoTranslatorConfig.ini` 文件中修改以下配置：
+首次运行插件后，编辑 `AutoTranslatorConfig.ini`：
 
 ```
 [Service]
 Endpoint=AutoLLMTranslate
 ```
 
-此外，你需要正确配置语言：
+正确配置语言：
 
 ```
 Language=zh-cn
 FromLanguage=en
 ```
 
-### 配置说明
+插件会首次运行时自动创建 `[AutoLLM]` 段及以下配置项，填写后生效：
 
-> **注意：插件首次运行时会自动在 `AutoTranslatorConfig.ini` 中创建 `[AutoLLM]` 段及以下配置项，请第一次运行后编辑 `AutoTranslatorConfig.ini` 填写 Model（模型名）、URL（API 地址）、APIKey，否则翻译不会生效。**
->
-> **本插件使用 JSON Output 模式（`response_format: {"type": "json_object"}`），需模型支持该功能（DeepSeek、OpenAI 等支持，部分本地模型可能不支持）。**
+> **注意：模型需支持 JSON Output（`response_format: {"type": "json_object"}`），DeepSeek、OpenAI 等支持，部分本地模型可能不支持。**
 
 | 参数 | 作用 | 默认值 |
 |------|------|--------|
