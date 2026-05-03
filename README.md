@@ -25,7 +25,7 @@
 | ModelParams | 额外模型参数（JSON 格式） | （无） |
 | ExtraPrompt | 附加系统提示词，追加在默认提示词之后，用于术语表、风格描述等 | （无） |
 | HalfWidth | 全角符号自动转半角 | `True` |
-| DisableSpamChecks | 禁用垃圾文本过滤 | `False` |
+| DisableSpamChecks | 禁用垃圾文本过滤。翻译速度慢时 XUnity 可能在 60 秒后误判为 spam 关闭插件，开启此项避免误关 | `True` |
 | LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Error` |
 | Log2File | 是否输出日志到文件 | `False` |
 ## 相对于上游的主要改动
