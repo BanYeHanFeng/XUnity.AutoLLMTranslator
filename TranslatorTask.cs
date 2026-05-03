@@ -55,56 +55,48 @@ public class TranslatorTask
     }
 
 
-    private string[]? _apiKeys;
+    private string? _apiKey;
     private string? _model;
-    private string? _requirement;
     private string? _url;
-    private string? _terminology;
-    private string? _gameName;
-    private string? _gameDesc;
-    private int _maxWordCount = 2500;
-    private int _parallelCount = 10;
     private int _pollingInterval = 1000;
+    private int _batchTimeoutMs = 1000;
+    private int _maxWordCount = 2500;
+    private int _historyTurns = -1;
+    private int _parallelCount = 10;
+    private int _maxRetry = 10;
+    private string _modelParams = "";
+    private string? _extraPrompt;
+    private bool _halfWidth = true;
     private string? DestinationLanguage;
     private string? SourceLanguage;
-    //使用半角符号
-    private bool _halfWidth = true;
-    private int _maxRetry = 10;
-    private int _batchTimeoutMs = 1000;
     private long _lastAddTime = 0;
     private long _oldestWaitingTick = 0;
-    private string _modelParams = "";
     List<TaskData> taskDatas = new List<TaskData>();
-    TranslateDB translateDB = new TranslateDB();
     HttpListener listener;
-    private int _historyTurns = -1;
     List<object> _conversationHistory = new List<object>();
     readonly object _historyLock = new object();
 
-    private int _currentKeyIndex = 0;
     public void Init(IInitializationContext context)
     {
-        _apiKeys = context.GetOrCreateSetting("AutoLLM", "APIKey", "")?.Split(';') ?? new string[] { "NOKEY" };
         _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
-        _requirement = context.GetOrCreateSetting("AutoLLM", "Requirement", "");
         _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
-        _terminology = context.GetOrCreateSetting("AutoLLM", "Terminology", "");
-        _gameName = context.GetOrCreateSetting("AutoLLM", "GameName", "");
-        _gameDesc = context.GetOrCreateSetting("AutoLLM", "GameDesc", "");
-        _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
-        _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 3);
+        _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
         _pollingInterval = context.GetOrCreateSetting("AutoLLM", "Interval", 200);
-        _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
+        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
+        _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
+        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
+        _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 3);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
-        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
-        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
-        ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
-        ServicePointManager.Expect100Continue = false;
+        _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
+        _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
             context.DisableSpamChecks();
         }
+
+        ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
+        ServicePointManager.Expect100Continue = false;
 
         if (_url.EndsWith("/v1"))
         {
@@ -117,11 +109,10 @@ public class TranslatorTask
 
         DestinationLanguage = context.DestinationLanguage;
         SourceLanguage = context.SourceLanguage;
-        if ((_apiKeys?.Length ?? 0) == 0 && !_url.Contains("localhost") && !_url.Contains("127.0.0.1") && !_url.Contains("192.168."))
+        if (string.IsNullOrEmpty(_apiKey) && !_url.Contains("localhost") && !_url.Contains("127.0.0.1") && !_url.Contains("192.168."))
         {
             throw new Exception("The AutoLLM endpoint requires an API key which has not been provided.");
         }
-        translateDB.Init(context, _terminology);
 
         listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:20000/");
@@ -270,20 +261,6 @@ public class TranslatorTask
     private readonly object _lockObject = new object();
 
 
-    private string GetNextApiKey()
-    {
-        if (_apiKeys == null || _apiKeys.Length == 0)
-        {
-            return string.Empty;
-        }
-        lock (_apiKeys)
-        {
-            var key = _apiKeys[_currentKeyIndex];
-            _currentKeyIndex = (_currentKeyIndex + 1) % _apiKeys.Length;
-            return key;
-        }
-    }
-
     void TaskRespond(TaskData task)
     {
         task.TryRespond();
@@ -308,11 +285,10 @@ public class TranslatorTask
                 texts.AddRange(task.texts);
             }
             var system = Config.prompt_base
-            .Replace("{{GAMENAME}}", _gameName)
-            .Replace("{{GAMEDESC}}", _gameDesc)
-            .Replace("{{OTHER}}", _requirement)
-            .Replace("{{TARGET_LAN}}", DestinationLanguage)
-            .Replace("{{SOURCE_LAN}}", SourceLanguage);
+                .Replace("{{TARGET_LAN}}", DestinationLanguage)
+                .Replace("{{SOURCE_LAN}}", SourceLanguage);
+            if (!string.IsNullOrEmpty(_extraPrompt))
+                system += "\n\n" + _extraPrompt;
             var inputJson = BuildInputJson(texts);
 
             var messages = new List<object>();
@@ -354,7 +330,7 @@ public class TranslatorTask
             request.Method = "POST";
             request.Timeout = 60000;
             request.ReadWriteTimeout = 60000;
-            request.Headers.Add("Authorization", $"Bearer {GetNextApiKey()}");
+            request.Headers.Add("Authorization", $"Bearer {_apiKey}");
             request.ContentType = "application/json";
 
             // 写入请求体
@@ -418,7 +394,7 @@ public class TranslatorTask
                     }
 
                     var task = tasks[num - 1];
-                    task.result = new string[] { translateDB.FindTerminology(task.texts[0]) ?? rs };
+                    task.result = new string[] { rs };
                     task.state = TaskData.TaskState.Completed;
                     TaskRespond(task);
                     Logger.Debug($"{hashkey} 流OK: {rs}");
