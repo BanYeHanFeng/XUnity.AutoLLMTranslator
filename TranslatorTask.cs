@@ -96,7 +96,7 @@ public class TranslatorTask
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
-        if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
+        if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true))
         {
             context.DisableSpamChecks();
         }
@@ -352,6 +352,8 @@ public class TranslatorTask
                 streamWriter.Write(requestJson);
             }
 
+            var reqStartTick = Environment.TickCount;
+
             // 获取响应
             using (var response = (HttpWebResponse)request.GetResponse())
             using (var stream = response.GetResponseStream())
@@ -406,6 +408,10 @@ public class TranslatorTask
                 _totalCacheMissTokens += cacheMiss;
 
                 Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} 缓存命中{cacheHit} 缓存未中{cacheMiss} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
+
+                var elapsedMs = Environment.TickCount - reqStartTick;
+                if (elapsedMs > 0 && promptTokens + completionTokens > 0)
+                    Logger.Info($"LLM 速度: {completionTokens * 1000 / elapsedMs} tok/s (输出), {(promptTokens + completionTokens) * 1000 / elapsedMs} tok/s (总计), 耗时{elapsedMs}ms");
 
                 if (string.IsNullOrEmpty(fullResponseStr))
                     throw new Exception("翻译结果为空");
