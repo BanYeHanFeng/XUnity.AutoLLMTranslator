@@ -52,7 +52,7 @@ FromLanguage=en
 
 ### 配置说明
 
-> **注意：首次使用请在 `Config.ini` 的 `[AutoLLM]` 段填写 Model（模型名）、URL（API 地址）、APIKey，否则翻译不会生效。**
+> **注意：插件首次运行时会自动在 `Config.ini` 中创建 `[AutoLLM]` 段及以下配置项，请第一次运行后编辑 `Config.ini` 填写 Model（模型名）、URL（API 地址）、APIKey，否则翻译不会生效。**
 >
 > **本插件使用 JSON Output 模式（`response_format: {"type": "json_object"}`），需模型支持该功能（DeepSeek、OpenAI 等支持，部分本地模型可能不支持）。**
 
