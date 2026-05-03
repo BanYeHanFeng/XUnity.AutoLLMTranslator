@@ -42,6 +42,14 @@
   - `BatchTimeout` 与 `MaxWordCount` 双条件触发发送。
   - 修复并行发送失效问题，多批次可同时请求。
   - `ParallelCount` 默认值改为 `1`，避免并行导致对话历史交错、KV 缓存前缀无法命中。
+- **性能与可观测性**
+  - `MaxContext` 模型上下文限制，超出自动清空对话历史。
+  - `DisableSpamChecks` 默认 `True`，避免翻译慢时 XUnity 误判 spam 关闭插件。
+  - 新增 LLM usage 逐批次统计：输入/输出 token、缓存命中/未中、tok/s 速率、累计总量。
+  - HTTP 状态码日志、SSE 流中断告警、队列积压告警。
+  - 消息序列化改用 `Dictionary` 替代匿名类型，消除反射开销。
+  - SSE 拼接 `+=` → `StringBuilder`，正则预编译。
+  - 文本长度缓存到 `TaskData.charLen`，避免重复遍历计算。
 - **Bug 修复**
   - 修复 `TryRespond` 成功后 state `Completed`→`Closed`，finally 块只检查 `!= Completed` 导致成功翻译的任务被误判为失败重试、每批次浪费一倍 token（上游遗留 bug）。
 - **兼容与精简**
