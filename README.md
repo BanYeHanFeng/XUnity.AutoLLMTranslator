@@ -55,8 +55,6 @@ FromLanguage=en
 ```
 [AutoLLM]
 APIKey= <OPTION>
-Model=qwen3:8b
-URL=http://localhost:11434/v1
 ```
 
 ### 配置说明
@@ -65,12 +63,12 @@ URL=http://localhost:11434/v1
 
 | 参数 | 作用 | 默认值 |
 |------|------|--------|
-| `Model` | 翻译用的模型名 | `gpt-4o` |
-| `URL` | LLM API 地址，以 `/v1` 或 `/chat/completions` 结尾 | `https://api.openai.com/v1/chat/completions` |
+| `Model` | 翻译用的模型名 | |
+| `URL` | LLM API 地址，以 `/v1` 或 `/chat/completions` 结尾 | |
 | `APIKey` | API 密钥，多个 key 用 `;` 隔开实现负载均衡 | 空 |
 | `Requirement` | 额外的翻译指令，例如"使用莎士比亚风格翻译" | 空 |
 | `Terminology` | 术语表，格式：`Lorien==罗林\|Skadi==斯卡蒂` | 空 |
-| `GameName` | 游戏名称，帮助 AI 理解上下文 | `A Game` |
+| `GameName` | 游戏名称，帮助 AI 理解上下文 | 空 |
 | `GameDesc` | 游戏描述，帮助 AI 更准确翻译 | 空 |
 | `ModelParams` | 额外模型参数，JSON 格式，会合并到请求体中 | 空 |
 | `HalfWidth` | 全角符号自动转半角 | `True` |
