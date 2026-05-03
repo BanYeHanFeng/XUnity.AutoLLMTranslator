@@ -82,6 +82,8 @@ public class TranslatorTask
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
     bool _warnedUsageMissing = false;
+    bool _cacheStatsSupported = false;
+    bool _cacheStatsChecked = false;
 
     public void Init(IInitializationContext context)
     {
@@ -411,7 +413,16 @@ public class TranslatorTask
                 {
                     promptTokens = Convert.ToInt64(usage["prompt_tokens"]);
                     completionTokens = usage.ContainsKey("completion_tokens") ? Convert.ToInt64(usage["completion_tokens"]) : 0;
-                    if (usage.ContainsKey("prompt_cache_hit_tokens") || usage.ContainsKey("prompt_cache_miss_tokens"))
+
+                    if (!_cacheStatsChecked)
+                    {
+                        _cacheStatsChecked = true;
+                        _cacheStatsSupported = usage.ContainsKey("prompt_cache_hit_tokens") || usage.ContainsKey("prompt_cache_miss_tokens");
+                        if (!_cacheStatsSupported)
+                            Logger.Info("API 流式响应不返回缓存命中/未中统计（prompt_cache_hit_tokens / prompt_cache_miss_tokens），缓存统计将始终为 0，但不影响实际缓存效果");
+                    }
+
+                    if (_cacheStatsSupported)
                     {
                         cacheHit = usage.ContainsKey("prompt_cache_hit_tokens") ? Convert.ToInt64(usage["prompt_cache_hit_tokens"]) : 0;
                         cacheMiss = usage.ContainsKey("prompt_cache_miss_tokens") ? Convert.ToInt64(usage["prompt_cache_miss_tokens"]) : 0;
@@ -428,7 +439,10 @@ public class TranslatorTask
                 _totalCacheHitTokens += cacheHit;
                 _totalCacheMissTokens += cacheMiss;
 
-                Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} 缓存命中{cacheHit} 缓存未中{cacheMiss} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
+                if (_cacheStatsSupported)
+                    Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} 缓存命中{cacheHit} 缓存未中{cacheMiss} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
+                else
+                    Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens}");
 
                 var elapsedMs = Environment.TickCount - reqStartTick;
                 if (elapsedMs > 0 && promptTokens + completionTokens > 0)
