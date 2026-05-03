@@ -19,7 +19,7 @@
 | BatchTimeout | 等待新文本定时器，超时后处理文本（毫秒） | `1000` |
 | MaxWordCount | 每批最大字符数，达到即处理 | `2500` |
 | History | 对话历史保留轮数：`0`=禁用，`-1`=无限制（推荐），正数=保留最近 N 轮。<br>设为正数会破坏缓存前缀连续性，大幅降低缓存命中率 | `-1` |
-| ParallelCount | 并发翻译数量 | `3` |
+| ParallelCount | 并发翻译数量。设为 >1 会导致多个批次同时追加到共享对话历史，历史交错乱序，后续请求无法命中 KV 缓存前缀，大幅降低缓存命中率。推荐保持 `1` | `1` |
 | MaxRetry | 翻译失败重试次数 | `10` |
 | ModelParams | 额外模型参数（JSON 格式） | （无） |
 | ExtraPrompt | 附加系统提示词，追加在默认提示词之后，用于术语表、风格描述等 | （无） |
@@ -40,6 +40,7 @@
 - **批处理调度**
   - `BatchTimeout` 与 `MaxWordCount` 双条件触发发送。
   - 修复并行发送失效问题，多批次可同时请求。
+  - `ParallelCount` 默认值改为 `1`，避免并行导致对话历史交错、KV 缓存前缀无法命中。
 - **兼容与精简**
   - 兼容 .NET 3.5（`Environment.TickCount` 替代 `TickCount64`）。
   - CI 跳过 ILRepack，避免 Mono.Cecil 兼容性问题，并移除 Setup .NET 步骤以加速构建。
