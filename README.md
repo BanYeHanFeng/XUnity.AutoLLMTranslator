@@ -1,81 +1,51 @@
 ## 简介
-
-基于上游 NothingNullNull/XUnity.AutoLLMTranslator 根据自己需求二改的
-我本人并不懂代码，所有代码都用ai编程，可能会出现意料之外的bug
-
-具体使用方法请看上游仓库(https://github.com/NothingNullNull/XUnity.AutoLLMTranslator)
+基于 [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 的个人定制版。所有修改均由 AI 辅助完成。
 
 ## 致谢
+- [XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator) —— 插件基础
+- [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) —— 上游仓库
 
-```
-XUnity.AutoTranslator 该插件基于此项目开发
-NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
-```
+## 快速开始
+请参照[上游仓库](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 的安装说明完成插件安装。 
 
-## 主要优化
+首次运行游戏后，插件会自动在配置文件中创建 `[AutoLLM]` 段，按需编辑以下配置项即可。
 
-### 翻译质量与格式
-- JSON Output 模式（`response_format: {"type": "json_object"}`），输出结构化 JSON，解析更稳定
-- 连续对话历史替代历史翻译/模糊搜索，保留翻译轮次作为上下文，自动触发 DeepSeek KV 缓存（缓存命中 0.02元 vs 未命中 1元/百万token）
-- 移除硬编码的 temperature/max_tokens 参数，由 API 和 ModelParams 控制
-- History 配置（0=禁用，-1=无限制，正数=N 轮），灵活控制上下文长度。设为正数会截断缓存前缀，**导致 KV 缓存命中率断崖式下跌**；推荐保留 `-1`（无限制）以获得最佳缓存效益
-
-### 批处理调度
-- BatchTimeout 独立超时机制：新文本传入重置定时器，超时后自动发送
-- MaxWordCount 超限立即触发发送，无需等待 BatchTimeout
-- 修复并行发送失效问题，多批次可同时发送
-
-### 兼容与稳定性
-- 兼容 .NET 3.5（Environment.TickCount 替代 TickCount64）
-- CI 跳过 ILRepack 避免 Mono.Cecil 兼容性问题
-- CI 移除 Setup .NET 步骤，直接使用预装 SDK，节省约 46 秒
-
-### 精简
-- 移除 FuzzyString 模糊匹配库
-- 移除文件式翻译DB扫描
-
-## 配置
-
-首次运行插件后，编辑 `AutoTranslatorConfig.ini`：
-
-```
-[Service]
-Endpoint=AutoLLMTranslate
-```
-
-正确配置语言：
-
-```
-Language=zh-cn
-FromLanguage=en
-```
-
-插件会首次运行时自动创建 `[AutoLLM]` 段及以下配置项，填写后生效：
-
-> **注意：模型需支持 JSON Output（`response_format: {"type": "json_object"}`），DeepSeek、OpenAI 等支持，部分本地模型可能不支持。**
-
-| 参数 | 作用 | 默认值 |
+## 全部配置
+| 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `Model` | 翻译用的模型名 | |
-| `URL` | LLM API 地址，以 `/v1` 或 `/chat/completions` 结尾 | |
-| `APIKey` | API 密钥，多个 key 用 `;` 隔开实现负载均衡 | 空 |
-| `Requirement` | 额外的翻译指令，例如"使用莎士比亚风格翻译" | 空 |
-| `Terminology` | 术语表，格式：`Lorien==罗林\|Skadi==斯卡蒂` | 空 |
-| `GameName` | 游戏名称，帮助 AI 理解上下文 | 空 |
-| `GameDesc` | 游戏描述，帮助 AI 更准确翻译 | 空 |
-| `ModelParams` | 额外模型参数，JSON 格式，会合并到请求体中 | 空 |
-| `HalfWidth` | 全角符号自动转半角 | `True` |
-| `MaxWordCount` | 每批最大字符数，达到此值立即发送 | `2500` |
-| `ParallelCount` | 最大并发翻译请求数 | `3` |
-| `Interval` | 轮询间隔（毫秒） | `200` |
-| `MaxRetry` | 翻译失败最大重试次数 | `10` |
-| `DisableSpamChecks` | 禁用垃圾检查 | `False` |
-| `LogLevel` | 日志等级：Error / Warning / Info / Debug | `Error` |
-| `Log2File` | 是否输出日志到文件 | `False` |
+| Model | 模型名称，需模型支持JSON Output | （无） |
+| URL | API 地址，以 `/v1` 或 `/chat/completions` 结尾 | （无） |
+| APIKey | API 密钥 | （无） |
+| Interval | 轮询间隔（毫秒） | `200` |
+| BatchTimeout | 等待新文本定时器，超时后处理文本（毫秒） | `1000` |
+| MaxWordCount | 每批最大字符数，达到即处理 | `2500` |
+| History | 对话历史保留轮数：`0`=禁用，`-1`=无限制（推荐），正数=保留最近 N 轮。<br>设为正数会破坏缓存前缀连续性，大幅降低缓存命中率 | `-1` |
+| ParallelCount | 并发翻译数量 | `3` |
+| MaxRetry | 翻译失败重试次数 | `10` |
+| ModelParams | 额外模型参数（JSON 格式） | （无） |
+| ExtraPrompt | 附加系统提示词，追加在默认提示词之后，用于术语表、风格描述等 | （无） |
+| HalfWidth | 全角符号自动转半角 | `True` |
+| DisableSpamChecks | 禁用垃圾文本过滤 | `False` |
+| LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Error` |
+| Log2File | 是否输出日志到文件 | `False` |
+## 相对于上游的主要改动
 
-> **本仓库新增配置：**
->
-> | 参数 | 作用 | 默认值 |
-> |------|------|--------|
-> | `BatchTimeout` | 无新文本时的等待超时（毫秒），到期后即使未达到 MaxWordCount 也会发送 | `1000` |
-> | `History` | 对话历史保留轮数，0=禁用，-1=无限制（推荐），正数=保留最近 N 轮。设为正数会破坏缓存前缀的连续匹配，**导致 KV 缓存命中率骤降** | `-1` |
+- **翻译质量**
+  - 采用 JSON Output 模式，解析更稳定。
+  - 使用连续对话历史替代历史翻译/模糊搜索，缓存命中率显著提升。
+  - 可通过 `History` 控制上下文长度。
+  - 移除硬编码的 `temperature` / `max_tokens`。
+  - 以中文精简提示词替代原英文提示词。
+  - 移除 GameName、GameDesc、Requirement 等原 prompt 占位符。
+  - 支持 `ExtraPrompt` 附加提示词，用于术语表、风格描述等。
+- **批处理调度**
+  - `BatchTimeout` 与 `MaxWordCount` 双条件触发发送。
+  - 修复并行发送失效问题，多批次可同时请求。
+- **兼容与精简**
+  - 兼容 .NET 3.5（`Environment.TickCount` 替代 `TickCount64`）。
+  - CI 跳过 ILRepack，避免 Mono.Cecil 兼容性问题，并移除 Setup .NET 步骤以加速构建。
+  - 移除 FuzzyString 模糊匹配库及文件式翻译数据库扫描。
+  - 移除 GameName、GameDesc、Requirement prompt 占位符。
+  - 移除 Terminology 术语表模块。
+  - APIKey 改为单 key 配置。
+  - HTTP 请求添加 60s 超时及 Expect100Continue = false。
