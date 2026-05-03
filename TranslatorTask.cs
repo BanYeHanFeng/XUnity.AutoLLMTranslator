@@ -506,7 +506,7 @@ public class TranslatorTask
                 lock (_lockObject)
                 {
                     var batch = SelectTasks();
-                    while (batch.Count > 0 && taskDatass.Count < _parallelCount)
+                    while (batch.Count > 0 && curProcessingCount < _parallelCount)
                     {
                         curProcessingCount++;
                         foreach (var task in batch)
