@@ -18,7 +18,7 @@ NothingNullNull/XUnity.AutoLLMTranslator 上游仓库
 - JSON Output 模式（`response_format: {"type": "json_object"}`），输出结构化 JSON，解析更稳定
 - 连续对话历史替代历史翻译/模糊搜索，保留翻译轮次作为上下文，自动触发 DeepSeek KV 缓存（缓存命中 0.02元 vs 未命中 1元/百万token）
 - 移除硬编码的 temperature/max_tokens 参数，由 API 和 ModelParams 控制
-- History 配置（0=禁用，-1=无限制，正数=N 轮），灵活控制上下文长度
+- History 配置（0=禁用，-1=无限制，正数=N 轮），灵活控制上下文长度。设为正数会截断缓存前缀，**导致 KV 缓存命中率断崖式下跌**；推荐保留 `-1`（无限制）以获得最佳缓存效益
 
 ### 批处理调度
 - BatchTimeout 独立超时机制：新文本传入重置定时器，超时后自动发送
@@ -87,4 +87,4 @@ URL=http://localhost:11434/v1
 > | 参数 | 作用 | 默认值 |
 > |------|------|--------|
 > | `BatchTimeout` | 无新文本时的等待超时（毫秒），到期后即使未达到 MaxWordCount 也会发送 | `1000` |
-> | `History` | 对话历史保留轮数，0=禁用，-1=无限制，正数=保留最近 N 轮。用于提高 API 缓存命中率 | `-1` |
+> | `History` | 对话历史保留轮数，0=禁用，-1=无限制（推荐），正数=保留最近 N 轮。设为正数会破坏缓存前缀的连续匹配，**导致 KV 缓存命中率骤降** | `-1` |

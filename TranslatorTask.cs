@@ -76,7 +76,7 @@ public class TranslatorTask
     private string _modelParams = "";
     List<TaskData> taskDatas = new List<TaskData>();
     TranslateDB translateDB = new TranslateDB();
-    HttpListener listener = new HttpListener();
+    HttpListener listener;
     private int _historyTurns = -1;
     List<object> _conversationHistory = new List<object>();
     readonly object _historyLock = new object();
@@ -100,6 +100,7 @@ public class TranslatorTask
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
         _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
+        ServicePointManager.Expect100Continue = false;
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", false))
         {
             context.DisableSpamChecks();
@@ -351,6 +352,8 @@ public class TranslatorTask
             // 创建HTTP请求
             var request = (HttpWebRequest)WebRequest.Create(_url);
             request.Method = "POST";
+            request.Timeout = 60000;
+            request.ReadWriteTimeout = 60000;
             request.Headers.Add("Authorization", $"Bearer {GetNextApiKey()}");
             request.ContentType = "application/json";
 
