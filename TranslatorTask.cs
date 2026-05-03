@@ -61,7 +61,7 @@ public class TranslatorTask
     private int _batchTimeoutMs = 1000;
     private int _maxWordCount = 2500;
     private int _historyTurns = -1;
-    private int _parallelCount = 10;
+    private int _parallelCount = 1;
     private int _maxRetry = 10;
     private string _modelParams = "";
     private string? _extraPrompt;
@@ -83,7 +83,7 @@ public class TranslatorTask
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
-        _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 3);
+        _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
