@@ -168,7 +168,10 @@ public class TranslatorTask
                 {
                     string requestBody = reader.ReadToEnd();
                     var texts = SimpleJson.ParseTexts(requestBody);
-                    var task = AddTask(texts, context);
+                    if (texts.Length > 0)
+                    {
+                        var task = AddTask(texts, context);
+                    }
                 }
             }
             if (request.HttpMethod == "GET")
@@ -221,6 +224,11 @@ public class TranslatorTask
 
     public TaskData AddTask(string[] texts, HttpListenerContext context)
     {
+        if (texts == null || texts.Length == 0)
+        {
+            Logger.Debug("添加任务: 空文本，跳过");
+            return null;
+        }
         Logger.Debug($"添加任务: {string.Join(", ", texts)}");
         int totalLen = 0;
         foreach (var t in texts) totalLen += t.Length;
@@ -347,7 +355,7 @@ public class TranslatorTask
             request.ContentType = "application/json";
 
             // 写入请求体
-            requestBody.Add("stream", true);
+            requestBody["stream"] = true;
             var requestJson = SimpleJson.Serialize(requestBody);
             Logger.Debug($"请求体大小: {requestJson.Length} chars");
             using (var streamWriter = new StreamWriter(request.GetRequestStream()))
