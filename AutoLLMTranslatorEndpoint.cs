@@ -35,6 +35,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
 
     public override void OnCreateRequest(IWwwRequestCreationContext context)
     {
+        if (context.UntranslatedTexts == null || context.UntranslatedTexts.Length == 0) return;
         Logger.Debug($"翻译请求: {context.UntranslatedTexts[0]}");
         context.Complete(new WwwRequestInfo("http://127.0.0.1:20000/", SimpleJson.SerializeTexts(context.UntranslatedTexts)));
     }

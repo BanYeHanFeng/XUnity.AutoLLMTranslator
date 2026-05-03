@@ -23,10 +23,10 @@ public class TranslatorTask
         public HttpListenerContext? context { get; set; }
         public string[] texts { get; set; }
         public string[] result { get; set; }
-        public int reqID { get; set; }
         public int retryCount { get; set; }
         public TaskState state = TaskState.Waiting;
         public long addTick;
+        public int charLen;
 
         //响应
         public bool TryRespond()
@@ -55,6 +55,9 @@ public class TranslatorTask
     }
 
 
+    private static readonly Regex HalfWidthRegex = new Regex(@"[！""＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]", RegexOptions.Compiled);
+
+
     private string? _apiKey;
     private string? _model;
     private string? _url;
@@ -63,13 +66,13 @@ public class TranslatorTask
     private int _historyTurns = -1;
     private int _parallelCount = 1;
     private int _maxRetry = 10;
+    private int _maxContext = 0;
     private string _modelParams = "";
     private string? _extraPrompt;
     private bool _halfWidth = true;
     private string? DestinationLanguage;
     private string? SourceLanguage;
     private long _lastAddTime = 0;
-    private long _oldestWaitingTick = 0;
     List<TaskData> taskDatas = new List<TaskData>();
     HttpListener listener;
     List<object> _conversationHistory = new List<object>();
@@ -85,6 +88,7 @@ public class TranslatorTask
         _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
+        _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 0);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
@@ -193,18 +197,13 @@ public class TranslatorTask
             {
                 if (task.state == TaskData.TaskState.Waiting)
                 {
-                    int taskToken = 0;
-                    foreach (var txt in task.texts)
-                    {
-                        taskToken += txt.Length;
-                    }
                     if (task.retryCount > 2 && tasks.Count > 0)
                     {
                         continue;
                     }
-                    toltoken += taskToken;
+                    toltoken += task.charLen;
                     tasks.Add(task);
-                    if (task.retryCount > 0)//错过就单独处理
+                    if (task.retryCount > 0)
                         break;
                     if (toltoken >= _maxWordCount)
                         break;
@@ -217,26 +216,16 @@ public class TranslatorTask
     public TaskData AddTask(string[] texts, HttpListenerContext context)
     {
         Logger.Debug($"添加任务: {string.Join(", ", texts)}");
-        var task = new TaskData() { texts = texts, context = context };
+        int totalLen = 0;
+        foreach (var t in texts) totalLen += t.Length;
+        var task = new TaskData() { texts = texts, context = context, charLen = totalLen };
         task.addTick = Environment.TickCount;
 
         lock (_lockObject)
         {
-            bool isFirstWaiting = !taskDatas.Any(t => t.state == TaskData.TaskState.Waiting);
-            taskDatas.Insert(0, task);
+            taskDatas.Add(task);
             _lastAddTime = Environment.TickCount;
-            if (isFirstWaiting)
-                _oldestWaitingTick = task.addTick;
         }
-
-        // // 等待任务完成
-        // task.WaitOne();
-
-        // // 移除任务时上锁
-        // lock (_lockObject)
-        // {
-        //     taskDatas.Remove(task);
-        // }
 
         return task;
     }
@@ -272,7 +261,6 @@ public class TranslatorTask
         int hashkey = tasks.GetHashCode();
         try
         {
-            //Log($"翻译开始Batch:" + hashkey);
             foreach (var task in tasks)
             {
                 Logger.Debug($"{hashkey} 翻译开始:{task.texts[0]}");
@@ -289,14 +277,32 @@ public class TranslatorTask
                 system += "\n\n" + _extraPrompt;
             var inputJson = BuildInputJson(texts);
 
+            if (_maxContext > 0 && _historyTurns != 0)
+            {
+                int totalChars = system.Length + inputJson.Length;
+                lock (_historyLock)
+                {
+                    foreach (var msg in _conversationHistory)
+                    {
+                        if (msg is Dictionary<string, object> dict && dict.ContainsKey("content"))
+                            totalChars += (dict["content"] as string)?.Length ?? 0;
+                    }
+                    if (totalChars / 2 > _maxContext)
+                    {
+                        _conversationHistory.Clear();
+                        Logger.Info($"历史超出 MaxContext({_maxContext})，已清空对话历史");
+                    }
+                }
+            }
+
             var messages = new List<object>();
-            messages.Add(new { role = "system", content = system });
+            messages.Add(new Dictionary<string, object> { {"role", "system"}, {"content", system} });
             lock (_historyLock)
             {
                 foreach (var msg in _conversationHistory)
                     messages.Add(msg);
             }
-            messages.Add(new { role = "user", content = inputJson });
+            messages.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
 
             var requestBody = new Dictionary<string, object>
             {
@@ -334,7 +340,6 @@ public class TranslatorTask
             // 写入请求体
             requestBody.Add("stream", true);
             var requestJson = SimpleJson.Serialize(requestBody);
-            //Log($"请求: {requestJson}");
             using (var streamWriter = new StreamWriter(request.GetRequestStream()))
             {
                 streamWriter.Write(requestJson);
@@ -345,7 +350,7 @@ public class TranslatorTask
             using (var stream = response.GetResponseStream())
             using (var reader = new StreamReader(stream))
             {
-                var fullResponse = "";
+                var fullResponse = new StringBuilder();
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -359,7 +364,7 @@ public class TranslatorTask
                     {
                         var content = SimpleJson.ParseSseContent(data);
                         if (!string.IsNullOrEmpty(content))
-                            fullResponse += content;
+                            fullResponse.Append(content);
                     }
                     catch (Exception ex)
                     {
@@ -367,14 +372,15 @@ public class TranslatorTask
                     }
                 }
 
-                Logger.Debug($"full流: {fullResponse}");
+                var fullResponseStr = fullResponse.ToString();
+                Logger.Debug($"full流: {fullResponseStr}");
 
-                if (string.IsNullOrEmpty(fullResponse))
+                if (string.IsNullOrEmpty(fullResponseStr))
                     throw new Exception("翻译结果为空");
 
-                var resultObj = SimpleJson.ParseJsonObject(fullResponse);
+                var resultObj = SimpleJson.ParseJsonObject(fullResponseStr);
                 if (resultObj == null || resultObj.Count == 0)
-                    throw new Exception($"JSON结果解析失败: {fullResponse}");
+                    throw new Exception($"JSON结果解析失败: {fullResponseStr}");
 
                 int i = 0;
                 foreach (var kvp in resultObj)
@@ -388,7 +394,7 @@ public class TranslatorTask
 
                     if (_halfWidth)
                     {
-                        rs = Regex.Replace(rs, @"[！＂＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]", m => ((char)(m.Value[0] - 0xFEE0)).ToString());
+                        rs = HalfWidthRegex.Replace(rs, m => ((char)(m.Value[0] - 0xFEE0)).ToString());
                     }
 
                     var task = tasks[num - 1];
@@ -403,8 +409,8 @@ public class TranslatorTask
                 {
                     lock (_historyLock)
                     {
-                        _conversationHistory.Add(new { role = "user", content = inputJson });
-                        _conversationHistory.Add(new { role = "assistant", content = fullResponse });
+                        _conversationHistory.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
+                        _conversationHistory.Add(new Dictionary<string, object> { {"role", "assistant"}, {"content", fullResponseStr} });
                         TrimHistory();
                     }
                 }
@@ -457,7 +463,6 @@ public class TranslatorTask
                 curProcessingCount--;
         }
     }
-
     void TrimHistory()
     {
         if (_historyTurns > 0)
@@ -477,7 +482,6 @@ public class TranslatorTask
             {
 
                 Thread.Sleep(50);
-                Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
                 if (curProcessingCount >= _parallelCount)
                 {
                     continue;
@@ -489,9 +493,9 @@ public class TranslatorTask
                     waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
                     waitingToken = taskDatas
                         .Where(t => t.state == TaskData.TaskState.Waiting)
-                        .SelectMany(t => t.texts)
-                        .Sum(txt => txt.Length);
+                        .Sum(t => t.charLen);
                 }
+                Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
 
                 // BatchTimeout: 无新文本传入到期后处理, MaxWordCount不受限
                 if (waitingCount > 0 && waitingToken < _maxWordCount && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
@@ -520,7 +524,7 @@ public class TranslatorTask
                 {
                     foreach (var tasklist in taskDatass)
                     {
-                        var totalChars = tasklist.Sum(t => t.texts.Sum(txt => txt.Length));
+                        var totalChars = tasklist.Sum(t => t.charLen);
                         Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
                         var taskListCopy = new List<TaskData>(tasklist);
                         Thread processingThread = new Thread(() => ProcessTaskBatch(taskListCopy));
