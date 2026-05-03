@@ -81,6 +81,7 @@ public class TranslatorTask
     long _totalOutputTokens = 0;
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
+    bool _warnedUsageMissing = false;
 
     public void Init(IInitializationContext context)
     {
@@ -122,8 +123,8 @@ public class TranslatorTask
 
         listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:20000/");
-        // 启动监听
         listener.Start();
+        Logger.Info($"已启动 | Model={_model} URL={_url} History={_historyTurns} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} DisableSpamChecks=True");
         Logger.Info("Listening for requests on http://127.0.0.1:20000/");
 
 
@@ -149,6 +150,7 @@ public class TranslatorTask
         Thread pollingThread = new Thread(Polling);
         pollingThread.IsBackground = true;
         pollingThread.Start();
+        Logger.Debug("轮询线程已启动");
     }
 
     private void ProcessRequest(HttpListenerContext context)
@@ -254,7 +256,8 @@ public class TranslatorTask
 
     void TaskRespond(TaskData task)
     {
-        task.TryRespond();
+        if (!task.TryRespond())
+            Logger.Warn($"响应发送失败: state={task.state} texts[0]={task.texts?[0]}");
         lock (_lockObject)
         {
             taskDatas.Remove(task);
@@ -362,6 +365,7 @@ public class TranslatorTask
                 var fullResponse = new StringBuilder();
                 var usage = new Dictionary<string, object>();
                 int chunkCount = 0;
+                bool doneReceived = false;
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -369,7 +373,7 @@ public class TranslatorTask
                     if (!line.StartsWith("data: ")) continue;
 
                     var data = line.Substring(6);
-                    if (data == "[DONE]") break;
+                    if (data == "[DONE]") { doneReceived = true; break; }
 
                     chunkCount++;
                     try
@@ -388,6 +392,9 @@ public class TranslatorTask
                     }
                 }
 
+                if (!doneReceived && fullResponse.Length > 0)
+                    Logger.Warn($"SSE 流未收到 [DONE]，响应可能不完整 (chunks={chunkCount})");
+
                 var fullResponseStr = fullResponse.ToString();
                 Logger.Debug($"full流({fullResponseStr.Length} chars, {chunkCount} chunks): {fullResponseStr}");
 
@@ -401,6 +408,11 @@ public class TranslatorTask
                         cacheHit = usage.ContainsKey("prompt_cache_hit_tokens") ? Convert.ToInt64(usage["prompt_cache_hit_tokens"]) : 0;
                         cacheMiss = usage.ContainsKey("prompt_cache_miss_tokens") ? Convert.ToInt64(usage["prompt_cache_miss_tokens"]) : 0;
                     }
+                }
+                else if (!_warnedUsageMissing)
+                {
+                    Logger.Debug("usage 字段未返回，API 可能不支持 token 统计或流式响应中未包含 usage");
+                    _warnedUsageMissing = true;
                 }
 
                 _totalInputTokens += promptTokens;
@@ -444,6 +456,8 @@ public class TranslatorTask
                     i++;
                 }
                 Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
+                if (i < tasks.Count)
+                    Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
 
                 if (_historyTurns != 0)
                 {
@@ -460,7 +474,10 @@ public class TranslatorTask
         }
         catch (WebException ex)
         {
-            Logger.Error($"翻译失败: {ex.Message}");
+            int statusCode = 0;
+            if (ex.Response is HttpWebResponse httpResp)
+                statusCode = (int)httpResp.StatusCode;
+            Logger.Error($"翻译失败 [{statusCode}]: {ex.Message}");
             if (ex.Response != null)
             {
                 using (var errorResponse = (HttpWebResponse)ex.Response)
@@ -539,6 +556,9 @@ public class TranslatorTask
                         .Sum(t => t.charLen);
                 }
                 Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
+
+                if (taskDatas.Count > 200)
+                    Logger.Warn($"任务积压严重: {taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
 
                 // BatchTimeout: 无新文本传入到期后处理, MaxWordCount不受限
                 if (waitingCount > 0 && waitingToken < _maxWordCount && Environment.TickCount - _lastAddTime < _batchTimeoutMs)

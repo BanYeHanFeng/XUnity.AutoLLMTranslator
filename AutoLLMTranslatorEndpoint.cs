@@ -31,11 +31,16 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
         }
         context.SetTranslationDelay(0.1f);
         task.Init(context);
+        Logger.Info("端点初始化完成");
     }
 
     public override void OnCreateRequest(IWwwRequestCreationContext context)
     {
-        if (context.UntranslatedTexts == null || context.UntranslatedTexts.Length == 0) return;
+        if (context.UntranslatedTexts == null || context.UntranslatedTexts.Length == 0)
+        {
+            Logger.Debug("翻译请求: 空文本，跳过");
+            return;
+        }
         Logger.Debug($"翻译请求: {context.UntranslatedTexts[0]}");
         context.Complete(new WwwRequestInfo("http://127.0.0.1:20000/", SimpleJson.SerializeTexts(context.UntranslatedTexts)));
     }
@@ -48,6 +53,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
         var rs = SimpleJson.ParseTexts(data);
         if ((rs?.Length ?? 0) == 0)
         {
+            Logger.Error($"翻译结果解析为空: {data}");
             context.Fail("翻译结果为空");
         }
         else
