@@ -85,11 +85,11 @@ public class TranslatorTask
     public void Init(IInitializationContext context)
     {
         _apiKeys = context.GetOrCreateSetting("AutoLLM", "APIKey", "")?.Split(';') ?? new string[] { "NOKEY" };
-        _model = context.GetOrCreateSetting("AutoLLM", "Model", "gpt-4o");
+        _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         _requirement = context.GetOrCreateSetting("AutoLLM", "Requirement", "");
-        _url = context.GetOrCreateSetting("AutoLLM", "URL", "https://api.openai.com/v1/chat/completions");
+        _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         _terminology = context.GetOrCreateSetting("AutoLLM", "Terminology", "");
-        _gameName = context.GetOrCreateSetting("AutoLLM", "GameName", "A Game");
+        _gameName = context.GetOrCreateSetting("AutoLLM", "GameName", "");
         _gameDesc = context.GetOrCreateSetting("AutoLLM", "GameDesc", "");
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 3);
