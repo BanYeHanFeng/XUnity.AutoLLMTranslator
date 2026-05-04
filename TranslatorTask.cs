@@ -298,7 +298,6 @@ public class TranslatorTask
             Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
-            _rateLimitDelayMs = 0;
 
             Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
 
@@ -375,10 +374,15 @@ public class TranslatorTask
                 Logger.Warn($"限速退避: {_rateLimitDelayMs / 1000}s");
                 Thread.Sleep(_rateLimitDelayMs);
             }
+            else
+            {
+                _rateLimitDelayMs = 0;
+            }
         }
         catch (Exception ex)
         {
             Logger.Error($"翻译失败: {ex.Message}");
+            _rateLimitDelayMs = 0;
         }
         finally
         {
