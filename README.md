@@ -34,6 +34,9 @@ APIKey = sk-xxxxxxxx
 | DisableSpamChecks | 禁止 XUnity 的 spam 检测（翻译较慢时可能误关插件） | `True` |
 | LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Error` |
 | Log2File | 日志输出到文件 | `False` |
+| ~~Terminology~~ | 术语表（已移除，改用 ExtraPrompt） | — |
+| ~~GameName~~ | 游戏名称（已移除，不再写入 prompt） | — |
+| ~~GameDesc~~ | 游戏描述（已移除，不再写入 prompt） | — |
 
 ## 相对于上游的主要改动
 
