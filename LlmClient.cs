@@ -40,7 +40,6 @@ internal static class LlmClient
         requestBody["response_format"] = new Dictionary<string, object> { { "type", "json_object" } };
         requestBody["stream"] = true;
         var requestJson = SimpleJson.Serialize(requestBody);
-        Logger.Debug($"请求体: {requestJson.Length}字 model={requestBody["model"]} msgs={((List<object>)requestBody["messages"]).Count}条 keys={{{string.Join(",", new List<string>(requestBody.Keys).ToArray())}}}");
 
         var httpRequest = (HttpWebRequest)WebRequest.Create(url);
         httpRequest.Method = "POST";

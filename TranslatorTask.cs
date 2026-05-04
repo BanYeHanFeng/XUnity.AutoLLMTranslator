@@ -127,7 +127,7 @@ public class TranslatorTask
         listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:20000/");
         listener.Start();
-        Logger.Info($"已启动 | Model={_model} URL={_url} History={_historyTurns} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} DisableSpamChecks=True");
+        Logger.Info($"已启动 | Model={_model} URL={_url} History={_historyTurns} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
         Logger.Info("Listening for requests on http://127.0.0.1:20000/");
 
 
