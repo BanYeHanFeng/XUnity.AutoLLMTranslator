@@ -75,15 +75,11 @@ public class TranslatorTask
     private long _lastAddTime = 0;
     List<TaskData> taskDatas = new List<TaskData>();
     HttpListener listener;
-    List<object> _conversationHistory = new List<object>();
-    readonly object _historyLock = new object();
+    ConversationHistory _history = new ConversationHistory();
     long _totalInputTokens = 0;
     long _totalOutputTokens = 0;
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
-    bool _warnedUsageMissing = false;
-    bool _cacheStatsSupported = false;
-    bool _cacheStatsChecked = false;
 
     public void Init(IInitializationContext context)
     {
@@ -106,6 +102,10 @@ public class TranslatorTask
 
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
         ServicePointManager.Expect100Continue = false;
+
+        _history.Enabled = _historyTurns != 0 && _parallelCount <= 1;
+        _history.MaxTurns = _historyTurns;
+        _history.MaxContext = _maxContext;
 
         if (_url.EndsWith("/v1"))
         {
@@ -279,14 +279,12 @@ public class TranslatorTask
         try
         {
             foreach (var task in tasks)
-            {
                 Logger.Debug($"{hashkey} 翻译开始:{task.texts[0]}");
-            }
+
             List<string> texts = new List<string>();
             foreach (var task in tasks)
-            {
                 texts.AddRange(task.texts);
-            }
+
             var system = Config.prompt_base
                 .Replace("{{TARGET_LAN}}", DestinationLanguage)
                 .Replace("{{SOURCE_LAN}}", SourceLanguage);
@@ -294,214 +292,65 @@ public class TranslatorTask
                 system += "\n\n" + _extraPrompt;
             var inputJson = BuildInputJson(texts);
 
-            var useHistory = _historyTurns != 0 && _parallelCount <= 1;
-
-            if (_maxContext > 0 && useHistory)
-            {
-                int estimatedChars = system.Length + inputJson.Length;
-                lock (_historyLock)
-                {
-                    foreach (var msg in _conversationHistory)
-                    {
-                        if (msg is Dictionary<string, object> dict && dict.ContainsKey("content"))
-                            estimatedChars += (dict["content"] as string)?.Length ?? 0;
-                    }
-                    if (estimatedChars / 2 > _maxContext)
-                    {
-                        _conversationHistory.Clear();
-                        Logger.Info($"历史超出 MaxContext({_maxContext})，已清空对话历史");
-                    }
-                }
-            }
-
-            var messages = new List<object>();
-            messages.Add(new Dictionary<string, object> { {"role", "system"}, {"content", system} });
-            if (useHistory)
-            {
-                lock (_historyLock)
-                {
-                    foreach (var msg in _conversationHistory)
-                        messages.Add(msg);
-                }
-            }
-            messages.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
-
-            var requestBody = new Dictionary<string, object>
-            {
-                { "model", _model },
-                { "messages", messages },
-                { "response_format", new Dictionary<string, object> { { "type", "json_object" } } }
-            };
-            if (!string.IsNullOrEmpty(_modelParams))
-            {
-                try
-                {
-                    var modelParamsData = SimpleJson.ParseModelParams(_modelParams);
-                    foreach (var item in modelParamsData)
-                        requestBody[item.Key] = item.Value;
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"模型参数解析错误: {ex.Message}");
-                }
-            }
+            _history.CheckAndClearIfOverLimit(system, inputJson);
+            var messages = _history.BuildMessages(system, inputJson);
 
             var totalChars = texts.Sum(t => t.Length);
-            var historyTurns = 0;
-            lock (_historyLock) { historyTurns = _conversationHistory.Count / 2; }
-            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{historyTurns}轮, 并行 {curProcessingCount}/{_parallelCount}");
+            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
+            var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
 
+            Logger.Debug($"full流({result.FullResponse.Length} chars, {result.ChunkCount} chunks): {result.FullResponse}");
 
-            // 创建HTTP请求
-            var request = (HttpWebRequest)WebRequest.Create(_url);
-            request.Method = "POST";
-            request.Timeout = 60000;
-            request.ReadWriteTimeout = 60000;
-            request.Headers.Add("Authorization", $"Bearer {_apiKey}");
-            request.ContentType = "application/json";
+            _totalInputTokens += result.PromptTokens;
+            _totalOutputTokens += result.CompletionTokens;
+            _totalCacheHitTokens += result.CacheHitTokens;
+            _totalCacheMissTokens += result.CacheMissTokens;
 
-            // 写入请求体
-            requestBody["stream"] = true;
-            var requestJson = SimpleJson.Serialize(requestBody);
-            Logger.Debug($"请求体大小: {requestJson.Length} chars");
-            using (var streamWriter = new StreamWriter(request.GetRequestStream()))
+            if (LlmClient.CacheStatsSupported)
+                Logger.Info($"LLM usage: 输入{result.PromptTokens} 输出{result.CompletionTokens} 缓存命中{result.CacheHitTokens} 缓存未中{result.CacheMissTokens} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
+            else
+                Logger.Info($"LLM usage: 输入{result.PromptTokens} 输出{result.CompletionTokens} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens}");
+
+            if (result.ElapsedMs > 0 && result.PromptTokens + result.CompletionTokens > 0)
+                Logger.Info($"LLM 速度: {result.CompletionTokens * 1000 / result.ElapsedMs} tok/s (输出), {(result.PromptTokens + result.CompletionTokens) * 1000 / result.ElapsedMs} tok/s (总计), 耗时{result.ElapsedMs}ms");
+
+            if (string.IsNullOrEmpty(result.FullResponse))
+                throw new Exception("翻译结果为空");
+
+            var resultObj = SimpleJson.ParseJsonObject(result.FullResponse);
+            if (resultObj == null || resultObj.Count == 0)
+                throw new Exception($"JSON结果解析失败: {result.FullResponse}");
+
+            int i = 0;
+            foreach (var kvp in resultObj)
             {
-                streamWriter.Write(requestJson);
+                int num;
+                if (!int.TryParse(kvp.Key, out num)) continue;
+                if (num < 1 || num > tasks.Count)
+                {
+                    Logger.Debug($"{hashkey} 解析结果键越界: key={kvp.Key} tasks={tasks.Count}");
+                    continue;
+                }
+
+                var rs = kvp.Value as string;
+                if (string.IsNullOrEmpty(rs)) continue;
+
+                if (_halfWidth)
+                    rs = HalfWidthRegex.Replace(rs, m => ((char)(m.Value[0] - 0xFEE0)).ToString());
+
+                var task = tasks[num - 1];
+                task.result = new string[] { rs };
+                task.state = TaskData.TaskState.Completed;
+                TaskRespond(task);
+                Logger.Debug($"{hashkey} 流OK [{num}]: {rs}");
+                i++;
             }
+            Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
+            if (i < tasks.Count)
+                Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
 
-            var reqStartTick = Environment.TickCount;
-
-            // 获取响应
-            using (var response = (HttpWebResponse)request.GetResponse())
-            using (var stream = response.GetResponseStream())
-            using (var reader = new StreamReader(stream))
-            {
-                var fullResponse = new StringBuilder();
-                var usage = new Dictionary<string, object>();
-                int chunkCount = 0;
-                bool doneReceived = false;
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    if (string.IsNullOrEmpty(line)) continue;
-                    if (!line.StartsWith("data: ")) continue;
-
-                    var data = line.Substring(6);
-                    if (data == "[DONE]") { doneReceived = true; break; }
-
-                    chunkCount++;
-                    try
-                    {
-                        var content = SimpleJson.ParseSseContent(data);
-                        if (!string.IsNullOrEmpty(content))
-                            fullResponse.Append(content);
-
-                        var chunkUsage = SimpleJson.ParseSseUsage(data);
-                        if (chunkUsage != null)
-                            usage = chunkUsage;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"解析流响应出错: {ex.Message}");
-                    }
-                }
-
-                if (!doneReceived && fullResponse.Length > 0)
-                    Logger.Warn($"SSE 流未收到 [DONE]，响应可能不完整 (chunks={chunkCount})");
-
-                var fullResponseStr = fullResponse.ToString();
-                Logger.Debug($"full流({fullResponseStr.Length} chars, {chunkCount} chunks): {fullResponseStr}");
-
-                long promptTokens = 0, completionTokens = 0, cacheHit = 0, cacheMiss = 0;
-                if (usage.ContainsKey("prompt_tokens"))
-                {
-                    promptTokens = Convert.ToInt64(usage["prompt_tokens"]);
-                    completionTokens = usage.ContainsKey("completion_tokens") ? Convert.ToInt64(usage["completion_tokens"]) : 0;
-
-                    if (!_cacheStatsChecked)
-                    {
-                        _cacheStatsChecked = true;
-                        _cacheStatsSupported = usage.ContainsKey("prompt_cache_hit_tokens") || usage.ContainsKey("prompt_cache_miss_tokens");
-                        if (!_cacheStatsSupported)
-                            Logger.Info("API 流式响应不返回缓存命中/未中统计（prompt_cache_hit_tokens / prompt_cache_miss_tokens），缓存统计将始终为 0，但不影响实际缓存效果");
-                    }
-
-                    if (_cacheStatsSupported)
-                    {
-                        cacheHit = usage.ContainsKey("prompt_cache_hit_tokens") ? Convert.ToInt64(usage["prompt_cache_hit_tokens"]) : 0;
-                        cacheMiss = usage.ContainsKey("prompt_cache_miss_tokens") ? Convert.ToInt64(usage["prompt_cache_miss_tokens"]) : 0;
-                    }
-                }
-                else if (!_warnedUsageMissing)
-                {
-                    Logger.Debug("usage 字段未返回，API 可能不支持 token 统计或流式响应中未包含 usage");
-                    _warnedUsageMissing = true;
-                }
-
-                _totalInputTokens += promptTokens;
-                _totalOutputTokens += completionTokens;
-                _totalCacheHitTokens += cacheHit;
-                _totalCacheMissTokens += cacheMiss;
-
-                if (_cacheStatsSupported)
-                    Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} 缓存命中{cacheHit} 缓存未中{cacheMiss} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens} 命中{_totalCacheHitTokens} 未中{_totalCacheMissTokens}");
-                else
-                    Logger.Info($"LLM usage: 输入{promptTokens} 输出{completionTokens} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens}");
-
-                var elapsedMs = Environment.TickCount - reqStartTick;
-                if (elapsedMs > 0 && promptTokens + completionTokens > 0)
-                    Logger.Info($"LLM 速度: {completionTokens * 1000 / elapsedMs} tok/s (输出), {(promptTokens + completionTokens) * 1000 / elapsedMs} tok/s (总计), 耗时{elapsedMs}ms");
-
-                if (string.IsNullOrEmpty(fullResponseStr))
-                    throw new Exception("翻译结果为空");
-
-                var resultObj = SimpleJson.ParseJsonObject(fullResponseStr);
-                if (resultObj == null || resultObj.Count == 0)
-                    throw new Exception($"JSON结果解析失败: {fullResponseStr}");
-
-                int i = 0;
-                foreach (var kvp in resultObj)
-                {
-                    int num;
-                    if (!int.TryParse(kvp.Key, out num)) continue;
-                    if (num < 1 || num > tasks.Count)
-                    {
-                        Logger.Debug($"{hashkey} 解析结果键越界: key={kvp.Key} tasks={tasks.Count}");
-                        continue;
-                    }
-
-                    var rs = kvp.Value as string;
-                    if (string.IsNullOrEmpty(rs)) continue;
-
-                    if (_halfWidth)
-                    {
-                        rs = HalfWidthRegex.Replace(rs, m => ((char)(m.Value[0] - 0xFEE0)).ToString());
-                    }
-
-                    var task = tasks[num - 1];
-                    task.result = new string[] { rs };
-                    task.state = TaskData.TaskState.Completed;
-                    TaskRespond(task);
-                    Logger.Debug($"{hashkey} 流OK [{num}]: {rs}");
-                    i++;
-                }
-                Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
-                if (i < tasks.Count)
-                    Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
-
-                if (useHistory)
-                {
-                    lock (_historyLock)
-                    {
-                        _conversationHistory.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
-                        _conversationHistory.Add(new Dictionary<string, object> { {"role", "assistant"}, {"content", fullResponseStr} });
-                        TrimHistory();
-                        Logger.Debug($"对话历史轮数: {_conversationHistory.Count / 2}");
-                    }
-                }
-            }
-
+            _history.AppendExchange(inputJson, result.FullResponse);
         }
         catch (WebException ex)
         {
@@ -554,17 +403,6 @@ public class TranslatorTask
                 curProcessingCount--;
         }
     }
-    void TrimHistory()
-    {
-        if (_historyTurns > 0)
-        {
-            int maxPairs = _historyTurns;
-            int excess = _conversationHistory.Count - maxPairs * 2;
-            if (excess > 0)
-                _conversationHistory.RemoveRange(0, excess);
-        }
-    }
-
     //轮询
     public void Polling()
     {
