@@ -310,8 +310,8 @@ public class TranslatorTask
             else
                 Logger.Info($"LLM usage: 输入{result.PromptTokens} 输出{result.CompletionTokens} | 累计: 入{_totalInputTokens} 出{_totalOutputTokens}");
 
-            if (result.ElapsedMs > 0 && result.PromptTokens + result.CompletionTokens > 0)
-                Logger.Info($"LLM 速度: {result.CompletionTokens * 1000 / result.ElapsedMs} tok/s (输出), {(result.PromptTokens + result.CompletionTokens) * 1000 / result.ElapsedMs} tok/s (总计), 耗时{result.ElapsedMs}ms");
+            if (result.ElapsedMs > 0 && result.CompletionTokens > 0)
+                Logger.Info($"LLM 速度: {result.CompletionTokens * 1000 / result.ElapsedMs} tok/s, 耗时{result.ElapsedMs}ms");
 
             if (string.IsNullOrEmpty(result.FullResponse))
                 throw new Exception("翻译结果为空");
@@ -435,7 +435,11 @@ public class TranslatorTask
                 }
 
                 if (waitingCount > 0)
-                    Logger.Info($"触发发送: waiting={waitingCount} tokens={waitingToken}/{_maxWordCount} idleMs={Environment.TickCount - _lastAddTime}");
+                {
+                    var idleMs = Environment.TickCount - _lastAddTime;
+                    var trigger = waitingToken >= _maxWordCount ? "MaxWordCount" : "BatchTimeout";
+                    Logger.Info($"触发发送: waiting={waitingCount} chars={waitingToken}/{_maxWordCount} idle={idleMs}ms trigger={trigger}");
+                }
 
                 List<List<TaskData>> taskDatass = new List<List<TaskData>>();
                 lock (_lockObject)
