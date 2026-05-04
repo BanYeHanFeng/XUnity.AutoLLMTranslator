@@ -1,63 +1,44 @@
 ## 简介
-基于 [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 的个人定制版。所有修改均由 AI 辅助完成。
+基于 [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 的个人定制版。
 
 ## 致谢
 - [XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator) —— 插件基础
 - [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) —— 上游仓库
 
 ## 快速开始
-请参照[上游仓库](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 的安装说明完成插件安装。 
+参照[上游仓库](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 安装插件后，首次运行游戏会自动创建 `[AutoLLM]` 配置段，按需填写以下三项即可使用：
 
-首次运行游戏后，插件会自动在配置文件中创建 `[AutoLLM]` 段，按需编辑以下配置项即可。
+```ini
+[AutoLLM]
+Model = deepseek-chat
+URL = https://api.deepseek.com/v1
+APIKey = sk-xxxxxxxx
+```
 
 ## 全部配置
+
 | 参数 | 说明 | 默认值 |
-|------|------|--------|
-| Model | 模型名称，需模型支持JSON Output | （无） |
-| URL | API 地址，以 `/v1` 或 `/chat/completions` 结尾 | （无） |
+|---|---|---|
+| Model | 模型名称，需支持 JSON Output | （无） |
+| URL | API 地址 | （无） |
 | APIKey | API 密钥 | （无） |
-| BatchTimeout | 等待新文本定时器，超时后处理文本（毫秒） | `1000` |
-| MaxWordCount | 每批最大字符数，达到即处理 | `2500` |
-| History | 对话历史保留轮数：`0`=禁用，`-1`=无限制（推荐），正数=保留最近 N 轮。<br>设为正数会破坏缓存前缀连续性，大幅降低缓存命中率 | `-1` |
-| ParallelCount | 并发翻译数量。设为 >1 时自动禁用对话历史（多批次交错写入会导致 KV 缓存前缀无法命中），每个批次退化为纯 system prompt + 当前文本。<br>推荐保持 `1` 以获得最佳缓存命中率 | `1` |
-| MaxContext | 模型输入上下文窗口大小（token 数），不含输出。例如 DeepSeek 上下文 1M 填 `1000000`。对话历史超出限制时自动清空，防止 token 溢出。`0`=不限制 | `0` |
+| BatchTimeout | 新文本到达后的等待时间（毫秒），超时后发送翻译 | `1000` |
+| MaxWordCount | 每批最大字符数，达到后立刻发送 | `2500` |
+| History | 对话历史保留轮数：`-1`=无限，`0`=禁用，正数=保留 N 轮 | `-1` |
+| ParallelCount | 并发数，>1 时自动禁用对话历史 | `1` |
+| MaxContext | 模型上下文上限（token），超出自动清空对话历史。DeepSeek 1M 上下文填 `1000000` | `0` |
 | MaxRetry | 翻译失败重试次数 | `10` |
-| ModelParams | 额外模型参数（JSON 格式） | （无） |
-| ExtraPrompt | 附加系统提示词，追加在默认提示词之后，用于术语表、风格描述等 | （无） |
+| ModelParams | 额外模型参数（JSON 格式），如 `{"temperature":0.3}` | （无） |
+| ExtraPrompt | 附加提示词，追加在默认提示词之后 | （无） |
 | HalfWidth | 全角符号自动转半角 | `True` |
-| DisableSpamChecks | 禁用垃圾文本过滤。翻译速度慢时 XUnity 可能在 60 秒后误判为 spam 关闭插件，开启此项避免误关 | `True` |
+| DisableSpamChecks | 禁止 XUnity 的 spam 检测（翻译较慢时可能误关插件） | `True` |
 | LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Error` |
-| Log2File | 是否输出日志到文件 | `False` |
+| Log2File | 日志输出到文件 | `False` |
+
 ## 相对于上游的主要改动
 
-- **翻译质量**
-  - 采用 JSON Output 模式，解析更稳定。
-  - 使用连续对话历史替代历史翻译/模糊搜索，缓存命中率显著提升。
-  - 可通过 `History` 控制上下文长度。
-  - 移除硬编码的 `temperature` / `max_tokens`。
-  - 以中文精简提示词替代原英文提示词。
-  - 移除 GameName、GameDesc、Requirement 等原 prompt 占位符。
-  - 支持 `ExtraPrompt` 附加提示词，用于术语表、风格描述等。
-- **批处理调度**
-  - `BatchTimeout` 与 `MaxWordCount` 双条件触发发送。
-  - 修复并行发送失效问题，多批次可同时请求。
-  - `ParallelCount` 默认值改为 `1`；>1 时自动禁用对话历史，避免交错破坏 KV 缓存前缀。
-- **性能与可观测性**
-  - `MaxContext` 模型上下文限制，超出自动清空对话历史。
-  - `DisableSpamChecks` 默认 `True`，避免翻译慢时 XUnity 误判 spam 关闭插件。
-  - 新增 LLM usage 逐批次统计：输入/输出 token、缓存命中/未中、tok/s 速率、累计总量。
-  - HTTP 状态码日志、SSE 流中断告警、队列积压告警。
-  - 消息序列化改用 `Dictionary` 替代匿名类型，消除反射开销。
-  - SSE 拼接 `+=` → `StringBuilder`，正则预编译。
-  - 文本长度缓存到 `TaskData.charLen`，避免重复遍历计算。
-- **Bug 修复**
-  - 修复 `TryRespond` 成功后 state `Completed`→`Closed`，finally 块只检查 `!= Completed` 导致成功翻译的任务被误判为失败重试、每批次浪费一倍 token（上游遗留 bug）。
-- **兼容与精简**
-  - 兼容 .NET 3.5（`Environment.TickCount` 替代 `TickCount64`）。
-  - CI 跳过 ILRepack，避免 Mono.Cecil 兼容性问题，并移除 Setup .NET 步骤以加速构建。
-  - 移除 FuzzyString 模糊匹配库及文件式翻译数据库扫描。
-  - 移除 Interval 配置，由 BatchTimeout 完全替代轮询合并功能。
-  - 移除 GameName、GameDesc、Requirement prompt 占位符。
-  - 移除 Terminology 术语表模块。
-  - APIKey 改为单 key 配置。
-  - HTTP 请求添加 60s 超时及 Expect100Continue = false。
+- **翻译方式**：改为 JSON Output 模式，解析更稳定；提示词精简为中文
+- **对话历史**：批次间共享上下文，提升缓存命中率；超出 `MaxContext` 自动清空
+- **批处理**：`BatchTimeout` + `MaxWordCount` 双条件触发；并发 >1 时自动禁用历史避免冲突
+- **Token 统计**：每批次输出输入/输出 token、速率、累计用量
+- **Bug 修复**：修复了两个上游遗留 bug —— 已发送成功的翻译被误判重试（浪费一倍 token）、高重试次数任务可能永久等待
