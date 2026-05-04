@@ -209,13 +209,11 @@ public class TranslatorTask
                 if (task.state == TaskData.TaskState.Waiting)
                 {
                     if (task.retryCount > 2 && tasks.Count > 0)
-                    {
                         break;
-                    }
+                    if (tasks.Count > 0 && (tasks[0].retryCount > 0) != (task.retryCount > 0))
+                        break;
                     toltoken += task.charLen;
                     tasks.Add(task);
-                    if (task.retryCount > 0)
-                        break;
                     if (toltoken >= _maxWordCount)
                         break;
                 }
