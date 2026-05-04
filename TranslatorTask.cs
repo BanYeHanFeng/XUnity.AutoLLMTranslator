@@ -286,6 +286,7 @@ public class TranslatorTask
     void ProcessTaskBatch(List<TaskData> tasks)
     {
         int hashkey = tasks.GetHashCode();
+        bool isRateLimit = false;
         try
         {
             foreach (var task in tasks)
@@ -381,6 +382,7 @@ public class TranslatorTask
             }
             if (statusCode == 429)
             {
+                isRateLimit = true;
                 _rateLimitDelayMs = _rateLimitDelayMs == 0 ? 5000 : Math.Min(_rateLimitDelayMs * 2, 60000);
                 Logger.Warn($"限速退避: {_rateLimitDelayMs / 1000}s");
                 Thread.Sleep(_rateLimitDelayMs);
@@ -398,28 +400,38 @@ public class TranslatorTask
         finally
         {
             Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
-            int retried = 0, failed = 0;
-            foreach (var task in tasks)
+            if (isRateLimit)
             {
-                if (task.state == TaskData.TaskState.Completed || task.state == TaskData.TaskState.Closed)
-                    continue;
-                task.retryCount++;
-                if (task.retryCount < _maxRetry)
-                {
-                    Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
-                    task.state = TaskData.TaskState.Waiting;
-                    task.result = null;
-                    retried++;
-                }
-                else
-                {
-                    Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
-                    task.state = TaskData.TaskState.Failed;
-                    TaskRespond(task);
-                    failed++;
-                }
+                foreach (var task in tasks)
+                    if (task.state != TaskData.TaskState.Completed && task.state != TaskData.TaskState.Closed)
+                        task.state = TaskData.TaskState.Waiting;
+                Logger.Info($"批次 {hashkey}: 限速重试 {tasks.Count} 条（不消耗重试次数）");
             }
-            if (retried > 0 || failed > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
+            else
+            {
+                int retried = 0, failed = 0;
+                foreach (var task in tasks)
+                {
+                    if (task.state == TaskData.TaskState.Completed || task.state == TaskData.TaskState.Closed)
+                        continue;
+                    task.retryCount++;
+                    if (task.retryCount < _maxRetry)
+                    {
+                        Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
+                        task.state = TaskData.TaskState.Waiting;
+                        task.result = null;
+                        retried++;
+                    }
+                    else
+                    {
+                        Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
+                        task.state = TaskData.TaskState.Failed;
+                        TaskRespond(task);
+                        failed++;
+                    }
+                }
+                if (retried > 0 || failed > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
+            }
             lock (_lockObject)
                 curProcessingCount--;
         }
