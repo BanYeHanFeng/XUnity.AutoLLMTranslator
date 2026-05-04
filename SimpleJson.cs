@@ -243,9 +243,9 @@ internal static class SimpleJson
         if (c == '"') return ReadString(s, ref pos);
         if (c == '{') return ParseObject(s, ref pos);
         if (c == '[') return ParseArray(s, ref pos);
-        if (c == 't' && pos + 4 <= s.Length && s.Substring(pos, 4) == "true") { pos += 4; return true; }
-        if (c == 'f' && pos + 5 <= s.Length && s.Substring(pos, 5) == "false") { pos += 5; return false; }
-        if (c == 'n' && pos + 4 <= s.Length && s.Substring(pos, 4) == "null") { pos += 4; return null; }
+        if (c == 't' && pos + 3 < s.Length && s[pos + 1] == 'r' && s[pos + 2] == 'u' && s[pos + 3] == 'e') { pos += 4; return true; }
+        if (c == 'f' && pos + 4 < s.Length && s[pos + 1] == 'a' && s[pos + 2] == 'l' && s[pos + 3] == 's' && s[pos + 4] == 'e') { pos += 5; return false; }
+        if (c == 'n' && pos + 3 < s.Length && s[pos + 1] == 'u' && s[pos + 2] == 'l' && s[pos + 3] == 'l') { pos += 4; return null; }
         return ReadNumber(s, ref pos);
     }
 

@@ -73,7 +73,7 @@ public class TranslatorTask
     private string? DestinationLanguage;
     private string? SourceLanguage;
     private long _lastAddTime = 0;
-    List<TaskData> taskDatas = new List<TaskData>();
+    List<TaskData> _taskDatas = new List<TaskData>();
     HttpListener listener;
     bool _initialized = false;
     ConversationHistory _history = new ConversationHistory();
@@ -216,7 +216,7 @@ public class TranslatorTask
         int toltoken = 0;
         lock (_lockObject)
         {
-            foreach (var task in taskDatas)
+            foreach (var task in _taskDatas)
             {
                 if (task.state == TaskData.TaskState.Waiting)
                 {
@@ -249,7 +249,7 @@ public class TranslatorTask
 
         lock (_lockObject)
         {
-            taskDatas.Add(task);
+            _taskDatas.Add(task);
             _lastAddTime = Environment.TickCount;
         }
 
@@ -271,6 +271,7 @@ public class TranslatorTask
     }
 
     int curProcessingCount = 0;
+    int _batchSeq = 0;
     private readonly object _lockObject = new object();
 
 
@@ -280,12 +281,12 @@ public class TranslatorTask
             Logger.Warn($"响应发送失败: state={task.state} texts[0]={task.texts?[0]}");
         lock (_lockObject)
         {
-            taskDatas.Remove(task);
+            _taskDatas.Remove(task);
         }
     }
     void ProcessTaskBatch(List<TaskData> tasks)
     {
-        int hashkey = tasks.GetHashCode();
+        int hashkey = Interlocked.Increment(ref _batchSeq);
         bool isRateLimit = false;
         try
         {
@@ -453,14 +454,14 @@ public class TranslatorTask
                 int waitingToken = 0;
                 lock (_lockObject)
                 {
-                    waitingCount = taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
-                    waitingToken = taskDatas
+                    waitingCount = _taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
+                    waitingToken = _taskDatas
                         .Where(t => t.state == TaskData.TaskState.Waiting)
                         .Sum(t => t.charLen);
                 }
 
-                if (taskDatas.Count > 200)
-                    Logger.Warn($"任务积压严重: {taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
+                if (_taskDatas.Count > 200)
+                    Logger.Warn($"任务积压严重: {_taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
 
                 // BatchTimeout: 无新文本传入到期后处理, MaxWordCount不受限
                 if (waitingCount > 0 && waitingToken < _maxWordCount && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
@@ -475,7 +476,7 @@ public class TranslatorTask
                     Logger.Info($"触发发送: 等待{waitingCount}条 字数{waitingToken}/{_maxWordCount} 空闲{idleMs}ms 触发={trigger}");
                 }
 
-                List<List<TaskData>> taskDatass = new List<List<TaskData>>();
+                List<List<TaskData>> _taskDatass = new List<List<TaskData>>();
                 lock (_lockObject)
                 {
                     var batch = SelectTasks();
@@ -484,19 +485,18 @@ public class TranslatorTask
                         curProcessingCount++;
                         foreach (var task in batch)
                             task.state = TaskData.TaskState.Processing;
-                        taskDatass.Add(batch);
+                        _taskDatass.Add(batch);
                         batch = SelectTasks();
                     }
                 }
 
-                if (taskDatass.Count > 0)
+                if (_taskDatass.Count > 0)
                 {
-                    foreach (var tasklist in taskDatass)
+                    foreach (var tasklist in _taskDatass)
                     {
                         var totalChars = tasklist.Sum(t => t.charLen);
                         Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
-                        var taskListCopy = new List<TaskData>(tasklist);
-                        Thread processingThread = new Thread(() => ProcessTaskBatch(taskListCopy));
+                        Thread processingThread = new Thread(() => ProcessTaskBatch(tasklist));
                         processingThread.IsBackground = true;
                         processingThread.Start();
                     }

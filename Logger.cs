@@ -34,8 +34,7 @@ public static class Logger
   static void Log(string message, LogLevel level)
   {
     if (level > _logLevel) return;
-    message = $"[{DateTime.Now:HH:mm:ss}] {message}";
-    var logMessage = $"[ALLM_{level.ToString()[0]}]: {message}";
+    var logMessage = $"[ALLM_{level.ToString()[0]}]: [{DateTime.Now:HH:mm:ss}] {message}";
     
     lock (_logLock)
     {
