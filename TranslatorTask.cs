@@ -75,6 +75,7 @@ public class TranslatorTask
     private long _lastAddTime = 0;
     List<TaskData> taskDatas = new List<TaskData>();
     HttpListener listener;
+    bool _initialized = false;
     ConversationHistory _history = new ConversationHistory();
     long _totalInputTokens = 0;
     long _totalOutputTokens = 0;
@@ -119,6 +120,11 @@ public class TranslatorTask
 
         DestinationLanguage = context.DestinationLanguage;
         SourceLanguage = context.SourceLanguage;
+        if (string.IsNullOrEmpty(_model) || string.IsNullOrEmpty(_url))
+        {
+            Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
+            return;
+        }
         if (string.IsNullOrEmpty(_apiKey) && !_url.Contains("localhost") && !_url.Contains("127.0.0.1") && !_url.Contains("192.168."))
         {
             throw new Exception("The AutoLLM endpoint requires an API key which has not been provided.");
@@ -153,6 +159,7 @@ public class TranslatorTask
         Thread pollingThread = new Thread(Polling);
         pollingThread.IsBackground = true;
         pollingThread.Start();
+        _initialized = true;
         Logger.Debug("轮询线程已启动");
     }
 
@@ -160,6 +167,11 @@ public class TranslatorTask
     {
         try
         {
+            if (!_initialized)
+            {
+                context.Response.Close();
+                return;
+            }
             Logger.Debug($"处理请求: {context.Request.HttpMethod} {context.Request.Url}");
             HttpListenerRequest request = context.Request;
             HttpListenerResponse response = context.Response;
@@ -435,7 +447,8 @@ public class TranslatorTask
                         .Where(t => t.state == TaskData.TaskState.Waiting)
                         .Sum(t => t.charLen);
                 }
-                Logger.Debug($"Polling curProcessingCount: {curProcessingCount}/{_parallelCount} TASKS: {taskDatas.Count}");
+                if (taskDatas.Count > 0)
+                    Logger.Debug($"Polling 并行{curProcessingCount}/{_parallelCount} 队列{taskDatas.Count}条");
 
                 if (taskDatas.Count > 200)
                     Logger.Warn($"任务积压严重: {taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
