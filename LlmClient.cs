@@ -26,11 +26,7 @@ internal static class LlmClient
 
     public static Result Translate(string url, string apiKey, string model, List<object> messages, string modelParams)
     {
-        var requestBody = new Dictionary<string, object>
-        {
-            { "model", model },
-            { "messages", messages }
-        };
+        var requestBody = new Dictionary<string, object>();
 
         if (!string.IsNullOrEmpty(modelParams))
         {
@@ -39,6 +35,8 @@ internal static class LlmClient
                 requestBody[kv.Key] = kv.Value;
         }
 
+        requestBody["model"] = model;
+        requestBody["messages"] = messages;
         requestBody["response_format"] = new Dictionary<string, object> { { "type", "json_object" } };
         requestBody["stream"] = true;
         var requestJson = SimpleJson.Serialize(requestBody);
