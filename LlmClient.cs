@@ -75,12 +75,19 @@ internal static class LlmClient
                 if (data == "[DONE]") { done = true; break; }
 
                 chunks++;
-                var content = SimpleJson.ParseSseContent(data);
-                if (!string.IsNullOrEmpty(content))
-                    fullResponse.Append(content);
+                try
+                {
+                    var content = SimpleJson.ParseSseContent(data);
+                    if (!string.IsNullOrEmpty(content))
+                        fullResponse.Append(content);
 
-                var u = SimpleJson.ParseSseUsage(data);
-                if (u != null) usage = u;
+                    var u = SimpleJson.ParseSseUsage(data);
+                    if (u != null) usage = u;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("解析流响应出错: " + ex.Message);
+                }
             }
 
             if (!done && fullResponse.Length > 0)
