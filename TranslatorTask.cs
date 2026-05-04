@@ -294,7 +294,9 @@ public class TranslatorTask
                 system += "\n\n" + _extraPrompt;
             var inputJson = BuildInputJson(texts);
 
-            if (_maxContext > 0 && _historyTurns != 0)
+            var useHistory = _historyTurns != 0 && _parallelCount <= 1;
+
+            if (_maxContext > 0 && useHistory)
             {
                 int estimatedChars = system.Length + inputJson.Length;
                 lock (_historyLock)
@@ -314,10 +316,13 @@ public class TranslatorTask
 
             var messages = new List<object>();
             messages.Add(new Dictionary<string, object> { {"role", "system"}, {"content", system} });
-            lock (_historyLock)
+            if (useHistory)
             {
-                foreach (var msg in _conversationHistory)
-                    messages.Add(msg);
+                lock (_historyLock)
+                {
+                    foreach (var msg in _conversationHistory)
+                        messages.Add(msg);
+                }
             }
             messages.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
 
@@ -481,7 +486,7 @@ public class TranslatorTask
                 if (i < tasks.Count)
                     Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
 
-                if (_historyTurns != 0)
+                if (useHistory)
                 {
                     lock (_historyLock)
                     {
