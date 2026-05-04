@@ -80,6 +80,7 @@ public class TranslatorTask
     long _totalOutputTokens = 0;
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
+    int _rateLimitDelayMs = 0;
 
     public void Init(IInitializationContext context)
     {
@@ -297,6 +298,7 @@ public class TranslatorTask
             Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
+            _rateLimitDelayMs = 0;
 
             Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
 
@@ -347,8 +349,8 @@ public class TranslatorTask
             Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
             if (i < tasks.Count)
                 Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
-
-            _history.AppendExchange(inputJson, result.FullResponse);
+            else
+                _history.AppendExchange(inputJson, result.FullResponse);
         }
         catch (WebException ex)
         {
@@ -366,6 +368,12 @@ public class TranslatorTask
                         Logger.Error($"服务器错误响应: {errorText}");
                     }
                 }
+            }
+            if (statusCode == 429)
+            {
+                _rateLimitDelayMs = _rateLimitDelayMs == 0 ? 5000 : Math.Min(_rateLimitDelayMs * 2, 60000);
+                Logger.Warn($"限速退避: {_rateLimitDelayMs / 1000}s");
+                Thread.Sleep(_rateLimitDelayMs);
             }
         }
         catch (Exception ex)
