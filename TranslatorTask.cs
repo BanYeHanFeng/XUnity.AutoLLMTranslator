@@ -160,7 +160,6 @@ public class TranslatorTask
         pollingThread.IsBackground = true;
         pollingThread.Start();
         _initialized = true;
-        Logger.Debug("轮询线程已启动");
     }
 
     private void ProcessRequest(HttpListenerContext context)
@@ -447,8 +446,6 @@ public class TranslatorTask
                         .Where(t => t.state == TaskData.TaskState.Waiting)
                         .Sum(t => t.charLen);
                 }
-                if (taskDatas.Count > 0)
-                    Logger.Debug($"Polling 并行{curProcessingCount}/{_parallelCount} 队列{taskDatas.Count}条");
 
                 if (taskDatas.Count > 200)
                     Logger.Warn($"任务积压严重: {taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
