@@ -210,7 +210,7 @@ public class TranslatorTask
                 {
                     if (task.retryCount > 2 && tasks.Count > 0)
                     {
-                        continue;
+                        break;
                     }
                     toltoken += task.charLen;
                     tasks.Add(task);
@@ -465,7 +465,11 @@ public class TranslatorTask
                 {
                     int num;
                     if (!int.TryParse(kvp.Key, out num)) continue;
-                    if (num < 1 || num > tasks.Count) continue;
+                    if (num < 1 || num > tasks.Count)
+                    {
+                        Logger.Debug($"{hashkey} 解析结果键越界: key={kvp.Key} tasks={tasks.Count}");
+                        continue;
+                    }
 
                     var rs = kvp.Value as string;
                     if (string.IsNullOrEmpty(rs)) continue;
@@ -555,8 +559,9 @@ public class TranslatorTask
         if (_historyTurns > 0)
         {
             int maxPairs = _historyTurns;
-            while (_conversationHistory.Count > maxPairs * 2)
-                _conversationHistory.RemoveAt(0);
+            int excess = _conversationHistory.Count - maxPairs * 2;
+            if (excess > 0)
+                _conversationHistory.RemoveRange(0, excess);
         }
     }
 
