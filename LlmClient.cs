@@ -29,8 +29,7 @@ internal static class LlmClient
         var requestBody = new Dictionary<string, object>
         {
             { "model", model },
-            { "messages", messages },
-            { "response_format", new Dictionary<string, object> { { "type", "json_object" } } }
+            { "messages", messages }
         };
 
         if (!string.IsNullOrEmpty(modelParams))
@@ -40,6 +39,7 @@ internal static class LlmClient
                 requestBody[kv.Key] = kv.Value;
         }
 
+        requestBody["response_format"] = new Dictionary<string, object> { { "type", "json_object" } };
         requestBody["stream"] = true;
         var requestJson = SimpleJson.Serialize(requestBody);
         Logger.Debug($"请求体大小: {requestJson.Length} chars");
