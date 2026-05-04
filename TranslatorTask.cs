@@ -298,7 +298,7 @@ public class TranslatorTask
 
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
 
-            Logger.Debug($"full流({result.FullResponse.Length} chars, {result.ChunkCount} chunks): {result.FullResponse}");
+            Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
 
             _totalInputTokens += result.PromptTokens;
             _totalOutputTokens += result.CompletionTokens;
@@ -327,7 +327,7 @@ public class TranslatorTask
                 if (!int.TryParse(kvp.Key, out num)) continue;
                 if (num < 1 || num > tasks.Count)
                 {
-                    Logger.Debug($"{hashkey} 解析结果键越界: key={kvp.Key} tasks={tasks.Count}");
+                    Logger.Debug($"{hashkey} 解析结果键越界: 键={kvp.Key} 任务总数={tasks.Count}");
                     continue;
                 }
 
@@ -437,8 +437,8 @@ public class TranslatorTask
                 if (waitingCount > 0)
                 {
                     var idleMs = Environment.TickCount - _lastAddTime;
-                    var trigger = waitingToken >= _maxWordCount ? "MaxWordCount" : "BatchTimeout";
-                    Logger.Info($"触发发送: waiting={waitingCount} chars={waitingToken}/{_maxWordCount} idle={idleMs}ms trigger={trigger}");
+                    var trigger = waitingToken >= _maxWordCount ? "字数达标" : "超时";
+                    Logger.Info($"触发发送: 等待{waitingCount}条 字数{waitingToken}/{_maxWordCount} 空闲{idleMs}ms 触发={trigger}");
                 }
 
                 List<List<TaskData>> taskDatass = new List<List<TaskData>>();
