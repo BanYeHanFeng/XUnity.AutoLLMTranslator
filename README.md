@@ -24,7 +24,6 @@ APIKey = sk-xxxxxxxx
 | APIKey | API 密钥 | （无） |
 | BatchTimeout | 新文本到达后的等待时间（毫秒），超时后发送翻译 | `1000` |
 | MaxWordCount | 每批最大字符数，达到后立刻发送 | `2500` |
-| History | 对话历史保留轮数：`-1`=无限，`0`=禁用，正数=保留 N 轮 | `-1` |
 | ParallelCount | 并发数，>1 时自动禁用对话历史 | `1` |
 | MaxContext | 模型上下文上限（token），超出自动清空对话历史。DeepSeek 1M 上下文填 `1000000` | `0` |
 | MaxRetry | 翻译失败重试次数 | `10` |

@@ -39,7 +39,7 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `AutoLLMTranslatorEndpoint.cs` | Framework glue. Registers `LLMTranslatorEndpoint` (`Endpoint=AutoLLMTranslate`). Extends `WwwEndpoint` with `MaxTranslationsPerRequest=1`, `MaxConcurrency=500` |
 | `TranslatorTask.cs` | Orchestrator: HTTP listener, task queue, batch scheduler, result mapping, retry logic |
 | `LlmClient.cs` | Stateless HTTP client: builds request, sends to LLM API, parses SSE stream, extracts usage stats |
-| `ConversationHistory.cs` | Manages multi-turn conversation history: message building, MaxContext trimming, turn limiting |
+| `ConversationHistory.cs` | Manages multi-turn conversation history: message building, MaxContext trimming |
 | `Config.cs` | System prompt template with `{{SOURCE_LAN}}` / `{{TARGET_LAN}}` placeholders |
 | `SimpleJson.cs` | Minimal JSON serializer/parser |
 | `Logger.cs` | Logging wrapper around `XuaLogger.Common` |
@@ -63,7 +63,6 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `APIKey` | — | API key |
 | `BatchTimeout` | 1000 | Max ms to wait for new texts before dispatching |
 | `MaxWordCount` | 2500 | Max chars per batch, triggers immediate dispatch |
-| `History` | -1 | Conversation turns: `-1`=unlimited, `0`=disabled, `N`=keep N |
 | `ParallelCount` | 1 | Concurrent LLM requests. >1 auto-disables conversation history |
 | `MaxContext` | 0 | Model context limit (tokens). History cleared if exceeded. `0`=no limit |
 | `MaxRetry` | 10 | Max retries for failed translations |
