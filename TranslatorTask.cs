@@ -125,9 +125,9 @@ public class TranslatorTask
             Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
             return;
         }
-        if (string.IsNullOrEmpty(_apiKey) && !_url.Contains("localhost") && !_url.Contains("127.0.0.1") && !_url.Contains("192.168."))
+        if (string.IsNullOrEmpty(_apiKey))
         {
-            throw new Exception("The AutoLLM endpoint requires an API key which has not been provided.");
+            Logger.Info("APIKey 未配置，Authorization 头将不发送");
         }
 
         listener = new HttpListener();
