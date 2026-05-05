@@ -7,7 +7,6 @@ internal class ConversationHistory
     readonly object _lock = new object();
 
     public bool Enabled { get; set; }
-    public int MaxTurns { get; set; }
     public int MaxContext { get; set; }
     public int TurnCount { get { lock (_lock) return _history.Count / 2; } }
 
@@ -31,7 +30,6 @@ internal class ConversationHistory
         {
             _history.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
             _history.Add(new Dictionary<string, object> { {"role", "assistant"}, {"content", responseJson} });
-            Trim();
         }
     }
 
@@ -54,13 +52,4 @@ internal class ConversationHistory
         }
     }
 
-    void Trim()
-    {
-        if (MaxTurns > 0)
-        {
-            int excess = _history.Count - MaxTurns * 2;
-            if (excess > 0)
-                _history.RemoveRange(0, excess);
-        }
-    }
 }

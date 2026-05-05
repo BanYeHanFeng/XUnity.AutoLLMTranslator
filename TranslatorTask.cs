@@ -63,7 +63,6 @@ public class TranslatorTask
     private string? _url;
     private int _batchTimeoutMs = 1000;
     private int _maxWordCount = 2500;
-    private int _historyTurns = -1;
     private int _parallelCount = 1;
     private int _maxRetry = 10;
     private int _maxContext = 0;
@@ -90,7 +89,6 @@ public class TranslatorTask
         _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
         _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
-        _historyTurns = context.GetOrCreateSetting("AutoLLM", "History", -1);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 0);
@@ -105,8 +103,7 @@ public class TranslatorTask
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, _parallelCount * 2);
         ServicePointManager.Expect100Continue = false;
 
-        _history.Enabled = _historyTurns != 0 && _parallelCount <= 1;
-        _history.MaxTurns = _historyTurns;
+        _history.Enabled = _parallelCount <= 1;
         _history.MaxContext = _maxContext;
 
         if (_url.EndsWith("/v1"))
@@ -133,7 +130,7 @@ public class TranslatorTask
         listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:20000/");
         listener.Start();
-        Logger.Info($"已启动 | Model={_model} URL={_url} History={_historyTurns} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
+        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
         Logger.Info("Listening for requests on http://127.0.0.1:20000/");
 
 
