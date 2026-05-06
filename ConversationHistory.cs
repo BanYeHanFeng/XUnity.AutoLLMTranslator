@@ -5,6 +5,7 @@ internal class ConversationHistory
 {
     List<object> _history = new List<object>();
     readonly object _lock = new object();
+    int _clearCount = 0;
 
     public bool Enabled { get; set; }
     public int MaxContext { get; set; }
@@ -47,7 +48,8 @@ internal class ConversationHistory
             if (chars / 2 > MaxContext)
             {
                 _history.Clear();
-                Logger.Info("历史超出 MaxContext(" + MaxContext + ")，已清空对话历史");
+                _clearCount++;
+                Logger.Info($"历史超出 MaxContext({MaxContext})，已清空对话历史（第{_clearCount}次）");
             }
         }
     }
