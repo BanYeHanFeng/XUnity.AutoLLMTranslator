@@ -168,7 +168,7 @@ public class TranslatorTask
                 context.Response.Close();
                 return;
             }
-            Logger.Debug($"处理请求: {context.Request.HttpMethod} {context.Request.Url}");
+            if (Logger.IsDebugEnabled) Logger.Debug($"处理请求: {context.Request.HttpMethod} {context.Request.Url}");
             HttpListenerRequest request = context.Request;
             HttpListenerResponse response = context.Response;
             if (request.HttpMethod == "POST")
@@ -238,7 +238,7 @@ public class TranslatorTask
             Logger.Debug("添加任务: 空文本，跳过");
             return null;
         }
-        Logger.Debug($"添加任务: {string.Join(", ", texts)}");
+        if (Logger.IsDebugEnabled) Logger.Debug($"添加任务: {string.Join(", ", texts)}");
         int totalLen = 0;
         foreach (var t in texts) totalLen += t.Length;
         var task = new TaskData() { texts = texts, context = context, charLen = totalLen };
@@ -288,7 +288,7 @@ public class TranslatorTask
         try
         {
             foreach (var task in tasks)
-                Logger.Debug($"{hashkey} 翻译开始:{task.texts[0]}");
+                if (Logger.IsDebugEnabled) Logger.Debug($"{hashkey} 翻译开始:{task.texts[0]}");
 
             List<string> texts = new List<string>();
             foreach (var task in tasks)
@@ -309,7 +309,7 @@ public class TranslatorTask
 
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
 
-            Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
+            if (Logger.IsDebugEnabled) Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
 
             _totalInputTokens += result.PromptTokens;
             _totalOutputTokens += result.CompletionTokens;
@@ -338,7 +338,7 @@ public class TranslatorTask
                 if (!int.TryParse(kvp.Key, out num)) continue;
                 if (num < 1 || num > tasks.Count)
                 {
-                    Logger.Debug($"{hashkey} 解析结果键越界: 键={kvp.Key} 任务总数={tasks.Count}");
+                    if (Logger.IsDebugEnabled) Logger.Debug($"{hashkey} 解析结果键越界: 键={kvp.Key} 任务总数={tasks.Count}");
                     continue;
                 }
 
@@ -352,10 +352,10 @@ public class TranslatorTask
                 task.result = new string[] { rs };
                 task.state = TaskData.TaskState.Completed;
                 TaskRespond(task);
-                Logger.Debug($"{hashkey} 流OK [{num}]: {rs}");
+                if (Logger.IsDebugEnabled) Logger.Debug($"{hashkey} 流OK [{num}]: {rs}");
                 i++;
             }
-            Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
+            if (Logger.IsDebugEnabled) Logger.Debug($"{hashkey} 解析完成: {i}/{tasks.Count} 条");
             if (i < tasks.Count)
                 Logger.Warn($"{hashkey} 解析结果不完整: 期望{tasks.Count}条 实际{i}条");
             else
@@ -397,7 +397,7 @@ public class TranslatorTask
         }
         finally
         {
-            Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
+            if (Logger.IsDebugEnabled) Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
             if (isRateLimit)
             {
                 foreach (var task in tasks)
@@ -415,7 +415,7 @@ public class TranslatorTask
                     task.retryCount++;
                     if (task.retryCount < _maxRetry)
                     {
-                        Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
+                        if (Logger.IsDebugEnabled) Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
                         task.state = TaskData.TaskState.Waiting;
                         task.result = null;
                         retried++;
@@ -447,14 +447,18 @@ public class TranslatorTask
                 {
                     continue;
                 }
-                int waitingCount;
+                int waitingCount = 0;
                 int waitingToken = 0;
                 lock (_lockObject)
                 {
-                    waitingCount = _taskDatas.Count(t => t.state == TaskData.TaskState.Waiting);
-                    waitingToken = _taskDatas
-                        .Where(t => t.state == TaskData.TaskState.Waiting)
-                        .Sum(t => t.charLen);
+                    foreach (var t in _taskDatas)
+                    {
+                        if (t.state == TaskData.TaskState.Waiting)
+                        {
+                            waitingCount++;
+                            waitingToken += t.charLen;
+                        }
+                    }
                 }
 
                 if (_taskDatas.Count > 200)

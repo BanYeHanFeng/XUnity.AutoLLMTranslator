@@ -114,8 +114,8 @@ internal static class LlmClient
 
                 if (_cacheStatsSupported)
                 {
-                    if (usage.ContainsKey("prompt_cache_hit_tokens")) result.CacheHitTokens = Convert.ToInt64(usage["prompt_cache_hit_tokens"]);
-                    if (usage.ContainsKey("prompt_cache_miss_tokens")) result.CacheMissTokens = Convert.ToInt64(usage["prompt_cache_miss_tokens"]);
+                    if (usage.TryGetValue("prompt_cache_hit_tokens", out object hit)) result.CacheHitTokens = Convert.ToInt64(hit);
+                    if (usage.TryGetValue("prompt_cache_miss_tokens", out object miss)) result.CacheMissTokens = Convert.ToInt64(miss);
                 }
             }
             else if (!_warnedUsageMissing)
