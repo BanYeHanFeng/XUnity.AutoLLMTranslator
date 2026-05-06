@@ -32,6 +32,7 @@ APIKey = sk-xxxxxxxx
 | HalfWidth | 全角符号自动转半角 | `True` |
 | DisableSpamChecks | 禁止 XUnity 的 spam 检测（翻译较慢时可能误关插件） | `True` |
 | LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug`，写入 `LogOutput.log` | `Error` |
+| ~~Log2File~~ | 日志输出到文件（已移除，日志统一由 XuaLogger 输出到 LogOutput.log） | — |
 | ~~Terminology~~ | 术语表（已移除，改用 ExtraPrompt） | — |
 | ~~GameName~~ | 游戏名称（已移除，不再写入 prompt） | — |
 | ~~GameDesc~~ | 游戏描述（已移除，不再写入 prompt） | — |
