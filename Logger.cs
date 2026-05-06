@@ -11,8 +11,10 @@ public static class Logger
       XuaLogger.Common.Error(logMessage);
     else if (levelTag == "W")
       XuaLogger.Common.Warn(logMessage);
+    else if (levelTag == "D")
+      XuaLogger.Common.Debug(logMessage);
     else
-      XuaLogger.Common.Info(logMessage); // Debug 也走 Info，绕过 XuaLogger 内部过滤
+      XuaLogger.Common.Info(logMessage);
   }
 
   public static void Info(string message)  => Log(message, "I");
