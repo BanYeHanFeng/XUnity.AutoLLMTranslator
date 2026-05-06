@@ -31,7 +31,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
             Logger.Debug("翻译请求: 空文本，跳过");
             return;
         }
-        Logger.Debug($"翻译请求: {context.UntranslatedTexts[0]}");
+        if (Logger.IsDebugEnabled) Logger.Debug($"翻译请求: {context.UntranslatedTexts[0]}");
         context.Complete(new WwwRequestInfo("http://127.0.0.1:20000/", SimpleJson.SerializeTexts(context.UntranslatedTexts)));
     }
 
@@ -39,7 +39,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
     {
         var data = context.ResponseData;
 
-        Logger.Debug($"翻译结果: {data}");
+        if (Logger.IsDebugEnabled) Logger.Debug($"翻译结果: {data}");
         var rs = SimpleJson.ParseTexts(data);
         if ((rs?.Length ?? 0) == 0)
         {

@@ -10,6 +10,10 @@ public static class Logger
   static bool _debugEnabled = false;
   // Error 始终启用，不需要标志位
 
+  public static bool IsInfoEnabled  => _infoEnabled;
+  public static bool IsWarnEnabled  => _warnEnabled;
+  public static bool IsDebugEnabled => _debugEnabled;
+
   // 反射检测 BepInEx 框架开启了哪些日志等级，未开启的方法直接 return 减少开销
   public static void AutoDetectLevels()
   {

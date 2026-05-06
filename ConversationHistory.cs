@@ -42,11 +42,11 @@ internal class ConversationHistory
         {
             foreach (var msg in _history)
             {
-                if (msg is Dictionary<string, object> dict && dict.ContainsKey("content"))
-                    chars += (dict["content"] as string)?.Length ?? 0;
+                if (msg is Dictionary<string, object> dict && dict.TryGetValue("content", out object content) && content is string s)
+                    chars += s.Length;
             }
             int estimatedTokens = chars / 2;
-            Logger.Debug($"上下文估算: {estimatedTokens}/{MaxContext} tokens (字符{chars}, 历史{_history.Count / 2}轮)");
+            if (Logger.IsDebugEnabled) Logger.Debug($"上下文估算: {estimatedTokens}/{MaxContext} tokens (字符{chars}, 历史{_history.Count / 2}轮)");
             if (estimatedTokens > MaxContext)
             {
                 _history.Clear();
