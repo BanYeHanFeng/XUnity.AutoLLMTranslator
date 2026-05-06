@@ -5,10 +5,13 @@ using XUnity.Common.Logging;
 
 public static class Logger
 {
+  static bool _infoEnabled  = false;
+  static bool _warnEnabled  = false;
   static bool _debugEnabled = false;
+  // Error 始终启用，不需要标志位
 
-  // 通过反射检测 BepInEx 框架是否开启了 Debug 日志等级
-  public static void AutoDetectDebug()
+  // 反射检测 BepInEx 框架开启了哪些日志等级，未开启的方法直接 return 减少开销
+  public static void AutoDetectLevels()
   {
     try
     {
@@ -21,19 +24,20 @@ public static class Logger
         if (listenersProp == null) continue;
         var listeners = listenersProp.GetValue(null) as IEnumerable;
         if (listeners == null) continue;
+
+        int combinedFilter = 0;
         foreach (var listener in listeners)
         {
           var filterProp = listener.GetType().GetProperty("LogLevelFilter");
           if (filterProp != null)
-          {
-            int filterVal = (int)filterProp.GetValue(listener, null);
-            if ((filterVal & 32) != 0) // BepInEx.Logging.LogLevel.Debug = 32
-            {
-              _debugEnabled = true;
-              return;
-            }
-          }
+            combinedFilter |= (int)filterProp.GetValue(listener, null);
         }
+
+        // BepInEx.Logging.LogLevel: Info=16, Warning=4, Debug=32
+        _infoEnabled  = (combinedFilter & 16) != 0;
+        _warnEnabled  = (combinedFilter & 4)  != 0;
+        _debugEnabled = (combinedFilter & 32) != 0;
+        return;
       }
     }
     catch { }
@@ -53,8 +57,8 @@ public static class Logger
       XuaLogger.Common.Info(logMessage);
   }
 
-  public static void Info(string message)  => Log(message, "I");
+  public static void Info(string message)  { if (_infoEnabled)  Log(message, "I"); }
   public static void Debug(string message) { if (_debugEnabled) Log(message, "D"); }
-  public static void Warn(string message)  => Log(message, "W");
+  public static void Warn(string message)  { if (_warnEnabled)  Log(message, "W"); }
   public static void Error(string message) => Log(message, "E");
 }
