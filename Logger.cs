@@ -3,52 +3,20 @@ using XUnity.Common.Logging;
 
 public static class Logger
 {
-  public enum LogLevel
+  static void Log(string message, string levelTag)
   {
-    Null,
-    Info,
-    Error,
-    Warning,
-    Debug,
-  }
-  static LogLevel _logLevel = LogLevel.Error;
+    var logMessage = $"[ALLM_{levelTag}]: [{DateTime.Now:HH:mm:ss}] {message}";
 
-  public static void InitLogger(LogLevel logLevel = LogLevel.Error)
-  {
-    _logLevel = logLevel;
-  }
-
-  static void Log(string message, LogLevel level)
-  {
-    if (level > _logLevel) return;
-
-    var logMessage = $"[ALLM_{level.ToString()[0]}]: [{DateTime.Now:HH:mm:ss}] {message}";
-
-    if (level == LogLevel.Error)
+    if (levelTag == "E")
       XuaLogger.Common.Error(logMessage);
-    else if (level == LogLevel.Warning)
+    else if (levelTag == "W")
       XuaLogger.Common.Warn(logMessage);
-    else if (level == LogLevel.Debug)
-      XuaLogger.Common.Info(logMessage); // Debug 改用 Info 输出，绕过 XuaLogger 内部等级过滤
     else
-      XuaLogger.Common.Info(logMessage);
+      XuaLogger.Common.Info(logMessage); // Debug 也走 Info，绕过 XuaLogger 内部过滤
   }
 
-  public static void Info(string message)
-  {
-    Log(message, LogLevel.Info);
-  }
-  public static void Debug(string message)
-  {
-    Log(message, LogLevel.Debug);
-  }
-  public static void Warn(string message)
-  {
-    Log(message, LogLevel.Warning);
-  }
-  public static void Error(string message)
-  {
-    Log(message, LogLevel.Error);
-  }
-
+  public static void Info(string message)  => Log(message, "I");
+  public static void Debug(string message) => Log(message, "D");
+  public static void Warn(string message)  => Log(message, "W");
+  public static void Error(string message) => Log(message, "E");
 }

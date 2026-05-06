@@ -18,16 +18,6 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
 
     public override void Initialize(IInitializationContext context)
     {
-        try
-        {
-            var debuglvl = context.GetOrCreateSetting<Logger.LogLevel>("AutoLLM", "LogLevel", Logger.LogLevel.Error);
-            Logger.InitLogger(debuglvl);
-        }
-        catch (Exception ex)
-        {            
-            Logger.InitLogger(Logger.LogLevel.Error);
-            Logger.Error($"{ex}");
-        }
         context.SetTranslationDelay(0.1f);
         task.Init(context);
         Logger.Info("端点初始化完成");
