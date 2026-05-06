@@ -23,7 +23,17 @@ public static class Logger
     if (_log2file && _logger == null)
     {
       string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-      var logfile = appDirectory + $"\\AutoLLM.log";
+      // 日志写入游戏根目录/BepInEx/，从 Managed/ 向上查找
+      string gameRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(appDirectory, ".."));
+      for (int i = 0; i < 2; i++)
+      {
+          if (System.IO.Directory.Exists(System.IO.Path.Combine(gameRoot, "BepInEx")))
+              break;
+          gameRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(gameRoot, ".."));
+      }
+      var logDir = System.IO.Path.Combine(gameRoot, "BepInEx");
+      System.IO.Directory.CreateDirectory(logDir);
+      var logfile = System.IO.Path.Combine(logDir, "AutoLLM.log");
       _logger = new System.IO.StreamWriter(logfile, true);
       _logger.AutoFlush = true;
     }
