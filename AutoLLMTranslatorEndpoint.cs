@@ -21,12 +21,11 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
         try
         {
             var debuglvl = context.GetOrCreateSetting<Logger.LogLevel>("AutoLLM", "LogLevel", Logger.LogLevel.Error);
-            var log2file = context.GetOrCreateSetting<bool>("AutoLLM", "Log2File", false);
-            Logger.InitLogger(debuglvl, log2file);
+            Logger.InitLogger(debuglvl);
         }
         catch (Exception ex)
         {            
-            Logger.InitLogger(Logger.LogLevel.Error, false);
+            Logger.InitLogger(Logger.LogLevel.Error);
             Logger.Error($"{ex}");
         }
         context.SetTranslationDelay(0.1f);
