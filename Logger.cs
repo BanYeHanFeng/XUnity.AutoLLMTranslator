@@ -26,7 +26,7 @@ public static class Logger
         if (loggerType == null) continue;
         var listenersProp = loggerType.GetProperty("Listeners", BindingFlags.Public | BindingFlags.Static);
         if (listenersProp == null) continue;
-        var listeners = listenersProp.GetValue(null) as IEnumerable;
+        var listeners = listenersProp.GetValue(null, null) as IEnumerable;
         if (listeners == null) continue;
 
         int combinedFilter = 0;
