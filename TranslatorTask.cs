@@ -87,7 +87,7 @@ public class TranslatorTask
         _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
-        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 1000);
+        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 400);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);

@@ -61,7 +61,7 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `Model` | — | Model name (must support JSON Output) |
 | `URL` | — | API endpoint (`/v1` expanded to `/v1/chat/completions`) |
 | `APIKey` | — | API key |
-| `BatchTimeout` | 1000 | Max ms to wait for new texts before dispatching |
+| `BatchTimeout` | 400 | Max ms to wait for new texts before dispatching |
 | `MaxWordCount` | 2500 | Max chars per batch, triggers immediate dispatch |
 | `ParallelCount` | 1 | Concurrent LLM requests. >1 auto-disables conversation history |
 | `MaxContext` | 0 | Model context limit (tokens). History cleared if exceeded. `0`=no limit |

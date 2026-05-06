@@ -22,7 +22,7 @@ APIKey = sk-xxxxxxxx
 | Model | 模型名称，需支持 JSON Output | （无） |
 | URL | API 地址 | （无） |
 | APIKey | API 密钥 | （无） |
-| BatchTimeout | 新文本到达后的等待时间（毫秒），超时后发送翻译 | `1000` |
+| BatchTimeout | 新文本到达后的等待时间（毫秒），超时后发送翻译 | `400` |
 | MaxWordCount | 每批最大字符数，达到后立刻发送 | `2500` |
 | ParallelCount | 并发数，>1 时自动禁用对话历史 | `1` |
 | MaxContext | 模型上下文上限（token），超出自动清空对话历史。DeepSeek 1M 上下文填 `1000000` | `0` |
