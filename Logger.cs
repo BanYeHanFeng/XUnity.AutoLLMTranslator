@@ -43,28 +43,27 @@ public static class Logger
 
   static void Log(string message, LogLevel level)
   {
-    if (level > _logLevel) return;
+    bool logToXua = level <= _logLevel;
+    bool logToFile = _logger != null;
+    if (!logToXua && !logToFile) return;
+
     var logMessage = $"[ALLM_{level.ToString()[0]}]: [{DateTime.Now:HH:mm:ss}] {message}";
     
     lock (_logLock)
     {
-      if (level == LogLevel.Error)
+      if (logToXua)
       {
-        XuaLogger.Common.Error(logMessage);
+        if (level == LogLevel.Error)
+          XuaLogger.Common.Error(logMessage);
+        else if (level == LogLevel.Warning)
+          XuaLogger.Common.Warn(logMessage);
+        else if (level == LogLevel.Debug)
+          XuaLogger.Common.Debug(logMessage);
+        else
+          XuaLogger.Common.Info(logMessage);
       }
-      else if (level == LogLevel.Warning)
-      {
-        XuaLogger.Common.Warn(logMessage);
-      }
-      else if (level == LogLevel.Debug)
-      {
-        XuaLogger.Common.Debug(logMessage);
-      }
-      else
-      {
-        XuaLogger.Common.Info(logMessage);
-      }
-      _logger?.WriteLine(logMessage);
+      if (logToFile)
+        _logger.WriteLine(logMessage);
     }
   }
 
