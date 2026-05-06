@@ -29,7 +29,7 @@ public static class Logger
     else if (level == LogLevel.Warning)
       XuaLogger.Common.Warn(logMessage);
     else if (level == LogLevel.Debug)
-      XuaLogger.Common.Debug(logMessage);
+      XuaLogger.Common.Info(logMessage); // Debug 改用 Info 输出，绕过 XuaLogger 内部等级过滤
     else
       XuaLogger.Common.Info(logMessage);
   }
