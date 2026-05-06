@@ -31,8 +31,8 @@ APIKey = sk-xxxxxxxx
 | ExtraPrompt | 附加提示词，追加在默认提示词之后 | （无） |
 | HalfWidth | 全角符号自动转半角 | `True` |
 | DisableSpamChecks | 禁止 XUnity 的 spam 检测（翻译较慢时可能误关插件） | `True` |
-| LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Error` |
-| Log2File | 日志输出到文件 | `False` |
+| LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug`，过滤所有输出 | `Error` |
+| Log2File | 日志输出到 `BepInEx/AutoLLM.log`，开启后不再写入 `LogOutput.log` | `False` |
 | ~~Terminology~~ | 术语表（已移除，改用 ExtraPrompt） | — |
 | ~~GameName~~ | 游戏名称（已移除，不再写入 prompt） | — |
 | ~~GameDesc~~ | 游戏描述（已移除，不再写入 prompt） | — |
