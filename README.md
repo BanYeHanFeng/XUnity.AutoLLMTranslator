@@ -39,8 +39,10 @@ APIKey = sk-xxxxxxxx
 
 ## 相对于上游的主要改动
 
-- **翻译方式**：改为 JSON Output 模式，解析更稳定；提示词精简为中文
-- **对话历史**：批次间共享上下文，提升缓存命中率；超出 `MaxContext` 自动清空
-- **批处理**：`BatchTimeout` + `MaxWordCount` 双条件触发；并发 >1 时自动禁用历史避免冲突
-- **Token 统计**：每批次输出输入/输出 token、速率、累计用量
-- **Bug 修复**：修复了两个上游遗留 bug —— 已发送成功的翻译被误判重试（浪费一倍 token）、高重试次数任务可能永久等待
+- **JSON Output + 流式解析**：强制 `response_format: json_object`，SSE 增量拼接，解析更稳定
+- **对话历史**：批次间共享上下文以提升缓存命中率，超出 `MaxContext` 自动清空
+- **批处理与并发**：`BatchTimeout` / `MaxWordCount` 双条件触发，并发 >1 时自动禁用历史
+- **Token 与速率统计**：每批次输出输入/输出/缓存 token 及速率，累计用量追踪
+- **限速退避**：429 自动指数退避，不消耗重试次数；超时适配 DeepSeek 10 分钟等待窗口
+- **资源优化**：ThreadPool 替代逐批次建线程，支持优雅关闭，修复连接泄露及线程安全问题
+- **移除参数**：`LogLevel`、`Log2File`、`Terminology`、`GameName`、`GameDesc`，日志统一由 BepInEx.cfg 控制
