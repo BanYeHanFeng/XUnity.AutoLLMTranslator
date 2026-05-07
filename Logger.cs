@@ -22,10 +22,10 @@ public static class Logger
     {
       // 从 Translator 目录向上找到 BepInEx/config/BepInEx.cfg（最多3层）
       var dir = translatorDirectory;
-      string cfgPath = null;
+      string? cfgPath = null;
       for (int i = 0; i < 3; i++)
       {
-        var test = Path.Combine(dir, "config", "BepInEx.cfg");
+        var test = Path.Combine(Path.Combine(dir, "config"), "BepInEx.cfg");
         if (File.Exists(test)) { cfgPath = test; break; }
         var parent = Path.GetDirectoryName(dir);
         if (parent == dir || string.IsNullOrEmpty(parent)) break;
@@ -73,7 +73,7 @@ public static class Logger
   static Dictionary<string, Dictionary<string, string>> ParseIniFile(string path)
   {
     var result = new Dictionary<string, Dictionary<string, string>>();
-    string currentSection = null;
+    string? currentSection = null;
     foreach (var line in File.ReadAllLines(path))
     {
       var trimmed = line.Trim();
