@@ -16,25 +16,29 @@ public static class Logger
   public static bool IsWarnEnabled  => _warnEnabled;
   public static bool IsDebugEnabled => _debugEnabled;
 
-  // LogLevel: None / Debug / 默认(Info+Warn+Error)
+  // LogLevel: Error / Warning / Info / Debug，默认 Info
   public static void SetLevel(string level)
   {
+    // 默认: Info (Error+Warn+Info, 关闭 Debug)
     _infoEnabled  = true;
     _warnEnabled  = true;
     _debugEnabled = false;
 
-    if (string.IsNullOrEmpty(level)) return;
-
-    var l = level.Trim();
-    if (l.Equals("None", StringComparison.OrdinalIgnoreCase))
+    var l = (level ?? "").Trim();
+    if (l.Equals("Error", StringComparison.OrdinalIgnoreCase))
     {
       _infoEnabled  = false;
       _warnEnabled  = false;
+    }
+    else if (l.Equals("Warning", StringComparison.OrdinalIgnoreCase))
+    {
+      _infoEnabled  = false;
     }
     else if (l.Equals("Debug", StringComparison.OrdinalIgnoreCase))
     {
       _debugEnabled = true;
     }
+    // "Info" 或空: 保持默认值不变
   }
 
   // Log2File: 额外写入 AutoLLM.log
