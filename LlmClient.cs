@@ -43,8 +43,8 @@ internal static class LlmClient
 
         var httpRequest = (HttpWebRequest)WebRequest.Create(url);
         httpRequest.Method = "POST";
-        httpRequest.Timeout = 60000;
-        httpRequest.ReadWriteTimeout = 60000;
+        httpRequest.Timeout = 600000;
+        httpRequest.ReadWriteTimeout = 600000;
         if (!string.IsNullOrEmpty(apiKey))
             httpRequest.Headers.Add("Authorization", "Bearer " + apiKey);
         httpRequest.ContentType = "application/json";

@@ -197,7 +197,7 @@ internal static class SimpleJson
                     case 'r': sb.Append('\r'); break;
                     case 't': sb.Append('\t'); break;
                     case 'u':
-                        if (pos + 4 <= s.Length)
+                        if (pos + 5 <= s.Length)
                         {
                             var hex = s.Substring(pos + 1, 4);
                             sb.Append((char)Convert.ToInt32(hex, 16));
