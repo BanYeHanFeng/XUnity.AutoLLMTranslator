@@ -61,7 +61,7 @@ public class TranslatorTask
     private string? _apiKey;
     private string? _model;
     private string? _url;
-    private int _batchTimeoutMs = 1000;
+    private int _batchTimeoutMs = -1;
     private int _maxWordCount = 2500;
     private int _parallelCount = 1;
     private int _maxRetry = 10;
@@ -71,7 +71,7 @@ public class TranslatorTask
     private bool _halfWidth = true;
     private string? DestinationLanguage;
     private string? SourceLanguage;
-    private long _lastAddTime = 0;
+    private volatile int _lastAddTime = 0;
     List<TaskData> _taskDatas = new List<TaskData>();
     HttpListener listener;
     bool _initialized = false;
@@ -80,14 +80,15 @@ public class TranslatorTask
     long _totalOutputTokens = 0;
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
-    int _rateLimitDelayMs = 0;
+    private volatile int _rateLimitDelayMs = 0;
+    private volatile bool _shutdownRequested = false;
 
     public void Init(IInitializationContext context)
     {
         _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
-        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", 400);
+        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", -1);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
@@ -150,12 +151,14 @@ public class TranslatorTask
         {
             try
             {
-                while (true)
+                while (!_shutdownRequested)
                 {
                     var ctx = listener.GetContext();
                     ProcessRequest(ctx);
                 }
             }
+            catch (HttpListenerException) { }
+            catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
                 Logger.Error($"HTTP listener error: {ex.Message}");
@@ -192,18 +195,25 @@ public class TranslatorTask
                     var texts = SimpleJson.ParseTexts(requestBody);
                     if (texts.Length > 0)
                     {
-                        var task = AddTask(texts, context);
+                        AddTask(texts, context);
+                    }
+                    else
+                    {
+                        context.Response.Close();
                     }
                 }
             }
-            if (request.HttpMethod == "GET")
+            else if (request.HttpMethod == "GET")
             {
-                // 处理 GET 请求
                 string responseString = "AutoLLMTranslator is running.";
                 byte[] buffer = Encoding.UTF8.GetBytes(responseString);
                 response.ContentLength64 = buffer.Length;
                 response.OutputStream.Write(buffer, 0, buffer.Length);
                 response.Close();
+            }
+            else
+            {
+                context.Response.Close();
             }
         }
         catch (Exception ex)
@@ -211,11 +221,6 @@ public class TranslatorTask
             Logger.Error($"处理请求时发生错误: {ex.Message}");
             context.Response.Close();
         }
-        // finally
-        // {
-        //     // 关闭响应
-        //     context.Response.Close();
-        // }
     }
 
     List<TaskData> SelectTasks()
@@ -448,7 +453,7 @@ public class TranslatorTask
     //轮询
     public void Polling()
     {
-        while (true)
+        while (!_shutdownRequested)
         {
             try
             {
@@ -475,8 +480,8 @@ public class TranslatorTask
                 if (_taskDatas.Count > 200)
                     Logger.Warn($"任务积压严重: {_taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
 
-                // BatchTimeout: 无新文本传入到期后处理, MaxWordCount不受限
-                if (waitingCount > 0 && waitingToken < _maxWordCount && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
+                // BatchTimeout: -1 立即处理不等待；>=0 等待超时或 MaxWordCount
+                if (waitingCount > 0 && waitingToken < _maxWordCount && _batchTimeoutMs >= 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
                 {
                     continue;
                 }
@@ -508,9 +513,7 @@ public class TranslatorTask
                     {
                         var totalChars = tasklist.Sum(t => t.charLen);
                         Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
-                        Thread processingThread = new Thread(() => ProcessTaskBatch(tasklist));
-                        processingThread.IsBackground = true;
-                        processingThread.Start();
+                        ThreadPool.QueueUserWorkItem(_ => ProcessTaskBatch(tasklist));
                     }
                 }
             }
@@ -519,5 +522,12 @@ public class TranslatorTask
                 Logger.Error(ex.Message);
             }
         }
+    }
+
+    public void Shutdown()
+    {
+        _shutdownRequested = true;
+        try { listener.Stop(); } catch { }
+        try { listener.Close(); } catch { }
     }
 }
