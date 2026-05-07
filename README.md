@@ -31,11 +31,11 @@ APIKey = sk-xxxxxxxx
 | ExtraPrompt | 附加提示词，追加在默认提示词之后 | （无） |
 | HalfWidth | 全角符号自动转半角 | `True` |
 | DisableSpamChecks | 禁止 XUnity 的 spam 检测（翻译较慢时可能误关插件） | `True` |
-| LogLevel | 日志等级：`Error` / `Warning` / `Info` / `Debug` | `Info` |
-| Log2File | 额外输出日志到 `BepInEx/AutoLLM.log` | `False` |
 | ~~Terminology~~ | 术语表（已移除，改用 ExtraPrompt） | — |
 | ~~GameName~~ | 游戏名称（已移除，不再写入 prompt） | — |
 | ~~GameDesc~~ | 游戏描述（已移除，不再写入 prompt） | — |
+
+> **日志**：所有日志始终写入 `BepInEx/AutoLLM.log`；日志等级由 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` / `[Logging.Disk]` 中 `LogLevels` 控制（任一端开启 Debug 即输出 Debug 日志）。
 
 ## 相对于上游的主要改动
 
