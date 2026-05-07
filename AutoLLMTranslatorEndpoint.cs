@@ -18,7 +18,6 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
 
     public override void Initialize(IInitializationContext context)
     {
-        Logger.AutoDetectLevels(context.TranslatorDirectory);
         context.SetTranslationDelay(0.1f);
         task.Init(context);
         Logger.Info("端点初始化完成");

@@ -95,6 +95,23 @@ public class TranslatorTask
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
+        var logLevel = context.GetOrCreateSetting("AutoLLM", "LogLevel", "");
+        var log2File = context.GetOrCreateSetting("AutoLLM", "Log2File", false);
+        Logger.SetLevel(logLevel);
+        if (log2File)
+        {
+            var dir = context.TranslatorDirectory;
+            for (int i = 0; i < 10; i++)
+            {
+                // BepInEx 根目录包含 core/ 子目录，或目录名就是 BepInEx
+                if (Directory.Exists(Path.Combine(dir, "core"))) break;
+                if ((Path.GetFileName(dir) ?? "").Equals("BepInEx", StringComparison.OrdinalIgnoreCase)) break;
+                var parent = Path.GetDirectoryName(dir);
+                if (parent == dir || string.IsNullOrEmpty(parent)) break;
+                dir = parent;
+            }
+            Logger.SetLogFile(Path.Combine(dir, "AutoLLM.log"));
+        }
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true))
         {
             context.DisableSpamChecks();
