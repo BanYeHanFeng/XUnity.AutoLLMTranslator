@@ -19,7 +19,7 @@ public static class Logger
   {
     try
     {
-      var cfgPath = Path.Combine(bepinExRoot, "config", "BepInEx.cfg");
+      var cfgPath = Path.Combine(Path.Combine(bepinExRoot, "config"), "BepInEx.cfg");
       if (!File.Exists(cfgPath)) return;
 
       var sections = ParseIniFile(cfgPath);
