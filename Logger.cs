@@ -10,20 +10,13 @@ public static class Logger
   static bool _debugEnabled = false;
   // Error 始终启用，不需要标志位
 
-  static string? _logFilePath = null;
-  static readonly object _fileLock = new object();
-
   public static bool IsInfoEnabled  => _infoEnabled;
   public static bool IsWarnEnabled  => _warnEnabled;
   public static bool IsDebugEnabled => _debugEnabled;
 
-  // 从 BepInEx/config/BepInEx.cfg 读取日志等级，同时始终启用 AutoLLM.log
+  // 从 BepInEx/config/BepInEx.cfg 读取日志等级
   public static void Init(string bepinExRoot)
   {
-    // 始终写入 BepInEx/AutoLLM.log
-    _logFilePath = Path.Combine(bepinExRoot, "AutoLLM.log");
-
-    // 从 BepInEx.cfg 读取日志等级
     try
     {
       var cfgPath = Path.Combine(bepinExRoot, "config", "BepInEx.cfg");
@@ -120,22 +113,6 @@ public static class Logger
     return defaultValue;
   }
 
-  static void WriteToFile(string message)
-  {
-    if (string.IsNullOrEmpty(_logFilePath)) return;
-    lock (_fileLock)
-    {
-      try
-      {
-        var dir = Path.GetDirectoryName(_logFilePath);
-        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-          Directory.CreateDirectory(dir);
-        File.AppendAllText(_logFilePath, message + Environment.NewLine);
-      }
-      catch { }
-    }
-  }
-
   static void Log(string message, string levelTag)
   {
     var logMessage = $"[ALLM_{levelTag}]: [{DateTime.Now:HH:mm:ss}] {message}";
@@ -148,8 +125,6 @@ public static class Logger
       XuaLogger.Common.Debug(logMessage);
     else
       XuaLogger.Common.Info(logMessage);
-
-    WriteToFile(logMessage);
   }
 
   public static void Info(string message)  { if (_infoEnabled)  Log(message, "I"); }

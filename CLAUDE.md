@@ -42,7 +42,7 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `ConversationHistory.cs` | Manages multi-turn conversation history: message building, MaxContext trimming |
 | `Config.cs` | System prompt template with `{{SOURCE_LAN}}` / `{{TARGET_LAN}}` placeholders |
 | `SimpleJson.cs` | Minimal JSON serializer/parser |
-| `Logger.cs` | Logging wrapper around `XuaLogger.Common`. `Init(bepinExRoot)` reads `config/BepInEx.cfg` for level filtering, always writes to `AutoLLM.log` |
+| `Logger.cs` | Logging wrapper around `XuaLogger.Common`. `Init(bepinExRoot)` reads `config/BepInEx.cfg` for level filtering, output goes to `LogOutput.log` |
 
 ## How It Works
 

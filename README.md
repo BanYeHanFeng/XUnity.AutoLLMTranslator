@@ -35,7 +35,7 @@ APIKey = sk-xxxxxxxx
 | ~~GameName~~ | 游戏名称（已移除，不再写入 prompt） | — |
 | ~~GameDesc~~ | 游戏描述（已移除，不再写入 prompt） | — |
 
-> **日志**：所有日志始终写入 `BepInEx/AutoLLM.log`；日志等级由 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` / `[Logging.Disk]` 中 `LogLevels` 控制（任一端开启 Debug 即输出 Debug 日志）。
+> **日志**：日志等级由 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` / `[Logging.Disk]` 中 `LogLevels` 控制（任一端开启 Debug 即输出 Debug 日志），统一输出到 `LogOutput.log`。
 
 ## 相对于上游的主要改动
 
