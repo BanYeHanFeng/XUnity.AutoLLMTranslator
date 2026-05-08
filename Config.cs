@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 
 public static class Config
@@ -12,5 +12,6 @@ public static class Config
 5. 输出为JSON对象，键与输入一致
 
 输入格式：{""1"": ""原文1"", ""2"": ""原文2""}
-输出格式：{""1"": ""译文1"", ""2"": ""译文2""}";
+输出格式：{""1"": ""译文1"", ""2"": ""译文2""}
+{{EXTRA_PROMPT}}";
 }
