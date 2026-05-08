@@ -330,11 +330,11 @@ public class TranslatorTask
             foreach (var task in tasks)
                 texts.AddRange(task.texts);
 
+            var extra = string.IsNullOrEmpty(_extraPrompt) ? "" : "\n\n" + _extraPrompt;
             var system = Config.prompt_base
                 .Replace("{{TARGET_LAN}}", DestinationLanguage)
-                .Replace("{{SOURCE_LAN}}", SourceLanguage);
-            if (!string.IsNullOrEmpty(_extraPrompt))
-                system += "\n\n" + _extraPrompt;
+                .Replace("{{SOURCE_LAN}}", SourceLanguage)
+                .Replace("{{EXTRA_PROMPT}}", extra);
             var inputJson = BuildInputJson(texts);
 
             _history.CheckAndClearIfOverLimit(system, inputJson);
