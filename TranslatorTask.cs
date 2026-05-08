@@ -65,7 +65,7 @@ public class TranslatorTask
     private int _maxWordCount = 2500;
     private int _parallelCount = 1;
     private int _maxRetry = 10;
-    private int _maxContext = 0;
+    private int _maxContext = 1024;
     private string _modelParams = "";
     private string? _extraPrompt;
     private bool _halfWidth = true;
@@ -75,6 +75,8 @@ public class TranslatorTask
     List<TaskData> _taskDatas = new List<TaskData>();
     HttpListener listener;
     bool _initialized = false;
+    private int _port = 20000;
+    public int Port => _port;
     ConversationHistory _history = new ConversationHistory();
     long _totalInputTokens = 0;
     long _totalOutputTokens = 0;
@@ -92,7 +94,7 @@ public class TranslatorTask
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
-        _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 0);
+        _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 1024);
         _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
@@ -139,11 +141,29 @@ public class TranslatorTask
             Logger.Info("APIKey 未配置，Authorization 头将不发送");
         }
 
-        listener = new HttpListener();
-        listener.Prefixes.Add("http://127.0.0.1:20000/");
-        listener.Start();
+        const int MaxPortAttempts = 10;
+        for (int attempt = 0; attempt < MaxPortAttempts; attempt++)
+        {
+            try
+            {
+                _port = 20000 + attempt;
+                listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{_port}/");
+                listener.Start();
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (attempt == MaxPortAttempts - 1)
+                {
+                    Logger.Error($"无法绑定任何端口 (20000-{20000 + MaxPortAttempts - 1}): {ex.Message}");
+                    return;
+                }
+                Logger.Warn($"端口 {_port} 被占用，尝试 {_port + 1}");
+            }
+        }
         Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
-        Logger.Info("Listening for requests on http://127.0.0.1:20000/");
+        Logger.Info($"Listening for requests on http://127.0.0.1:{_port}/");
 
 
         // Start a separate thread for HTTP listener

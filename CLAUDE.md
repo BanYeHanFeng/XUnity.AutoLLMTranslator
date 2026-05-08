@@ -64,7 +64,7 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `BatchTimeout` | -1 | Max ms to wait for new texts before dispatching. `-1`=disabled, dispatch immediately |
 | `MaxWordCount` | 2500 | Max chars per batch, triggers immediate dispatch |
 | `ParallelCount` | 1 | Concurrent LLM requests. >1 auto-disables conversation history |
-| `MaxContext` | 0 | Model context limit (tokens). History cleared if exceeded. `0`=no limit |
+| `MaxContext` | 1024 | Model context limit (tokens). History cleared if exceeded. `0`=no limit |
 | `MaxRetry` | 10 | Max retries for failed translations |
 | `ModelParams` | — | Extra JSON params merged into request body |
 | `ExtraPrompt` | — | Appended to system prompt (use for terminology, style) |
