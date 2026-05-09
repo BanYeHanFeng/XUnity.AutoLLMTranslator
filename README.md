@@ -24,7 +24,7 @@ APIKey=API密钥
 | APIKey | API 密钥 | （无） | |
 | MaxWordCount | 最大字符数 | `2500` | |
 | ParallelCount | 并发数 | `1` | `>1`禁用对话历史 |
-| MaxContext | 最大上下文（token） | `1024` | 超出清空对话历史，不宜超过 50000 |
+| MaxContext | 最大上下文（token） | `1024` | 超出清空对话历史，不宜超过 10000 |
 | MaxRetry | 重试次数 | `10` | |
 | ModelParams | 额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
 | ExtraPrompt | 附加提示词 | （无） | 附加在内置提示词之后 |
