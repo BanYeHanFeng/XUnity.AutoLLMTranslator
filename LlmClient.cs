@@ -39,12 +39,13 @@ internal static class LlmClient
         requestBody["messages"] = messages;
         requestBody["response_format"] = new Dictionary<string, object> { { "type", "json_object" } };
         requestBody["stream"] = true;
+        requestBody["stream_options"] = new Dictionary<string, object> { { "include_usage", true } };
         var requestJson = SimpleJson.Serialize(requestBody);
 
         var httpRequest = (HttpWebRequest)WebRequest.Create(url);
         httpRequest.Method = "POST";
         httpRequest.Timeout = 600000;
-        httpRequest.ReadWriteTimeout = 600000;
+        httpRequest.ReadWriteTimeout = 120000;
         if (!string.IsNullOrEmpty(apiKey))
             httpRequest.Headers.Add("Authorization", "Bearer " + apiKey);
         httpRequest.ContentType = "application/json";
