@@ -61,7 +61,6 @@ public class TranslatorTask
     private string? _apiKey;
     private string? _model;
     private string? _url;
-    private int _batchTimeoutMs = -1;
     private int _maxWordCount = 2500;
     private int _parallelCount = 1;
     private int _maxRetry = 10;
@@ -71,7 +70,6 @@ public class TranslatorTask
     private bool _halfWidth = true;
     private string? DestinationLanguage;
     private string? SourceLanguage;
-    private volatile int _lastAddTime = 0;
     List<TaskData> _taskDatas = new List<TaskData>();
     HttpListener listener;
     bool _initialized = false;
@@ -90,7 +88,6 @@ public class TranslatorTask
         _model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         _url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         _apiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
-        _batchTimeoutMs = context.GetOrCreateSetting("AutoLLM", "BatchTimeout", -1);
         _maxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
@@ -162,7 +159,7 @@ public class TranslatorTask
                 Logger.Warn($"端口 {_port} 被占用，尝试 {_port + 1}");
             }
         }
-        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} BatchTimeout={_batchTimeoutMs}ms MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
+        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
         Logger.Info($"Listening for requests on http://127.0.0.1:{_port}/");
 
 
@@ -283,7 +280,6 @@ public class TranslatorTask
         lock (_lockObject)
         {
             _taskDatas.Add(task);
-            _lastAddTime = Environment.TickCount;
         }
 
         return task;
@@ -500,17 +496,9 @@ public class TranslatorTask
                 if (_taskDatas.Count > 200)
                     Logger.Warn($"任务积压严重: {_taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
 
-                // BatchTimeout: -1 立即处理不等待；>=0 等待超时或 MaxWordCount
-                if (waitingCount > 0 && waitingToken < _maxWordCount && _batchTimeoutMs >= 0 && Environment.TickCount - _lastAddTime < _batchTimeoutMs)
-                {
-                    continue;
-                }
-
                 if (waitingCount > 0)
                 {
-                    var idleMs = Environment.TickCount - _lastAddTime;
-                    var trigger = waitingToken >= _maxWordCount ? "字数达标" : "超时";
-                    Logger.Info($"触发发送: 等待{waitingCount}条 字数{waitingToken}/{_maxWordCount} 空闲{idleMs}ms 触发={trigger}");
+                    Logger.Info($"触发发送: {waitingCount}条, {waitingToken}/{_maxWordCount} 字");
                 }
 
                 List<List<TaskData>> _taskDatass = new List<List<TaskData>>();

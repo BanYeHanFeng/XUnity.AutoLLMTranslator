@@ -48,7 +48,7 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 
 1. Framework calls `OnCreateRequest` → serializes text → POST to `127.0.0.1:20000`
 2. `HttpListener` receives → `AddTask` → joins task queue
-3. `Polling()` (50ms interval) monitors queue; dispatches when `MaxWordCount` exceeded or `BatchTimeout` ms of inactivity
+3. `Polling()` (50ms interval) monitors queue; dispatches immediately when capacity available, batched up to `MaxWordCount`
 4. `ProcessTaskBatch` builds messages via `ConversationHistory.BuildMessages`, calls `LlmClient.Translate`
 5. SSE stream parsed by `LlmClient`; accumulated JSON parsed as `{"1":"trans1","2":"trans2"}`
 6. Results mapped back to tasks; failed tasks retried up to `MaxRetry` times
@@ -61,7 +61,6 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release "/p:GameDir=$env:temp\GameO
 | `Model` | — | Model name (must support JSON Output) |
 | `URL` | — | API endpoint (`/v1` expanded to `/v1/chat/completions`) |
 | `APIKey` | — | API key |
-| `BatchTimeout` | -1 | Max ms to wait for new texts before dispatching. `-1`=disabled, dispatch immediately |
 | `MaxWordCount` | 2500 | Max chars per batch, triggers immediate dispatch |
 | `ParallelCount` | 1 | Concurrent LLM requests. >1 auto-disables conversation history |
 | `MaxContext` | 1024 | Model context limit (tokens). History cleared if exceeded. Best ≤50000; with a large base even 100% cache hits can't avoid high cost. `0`=no limit |
