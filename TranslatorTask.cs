@@ -356,6 +356,9 @@ public class TranslatorTask
     {
         if (!task.TryRespond())
             Logger.Warn($"响应发送失败: state={task.state} texts[0]={task.texts?[0]}");
+        // 记录任务总耗时（从添加到响应），帮助排查"日志1s但实际等5s"类问题
+        long totalMs = Environment.TickCount - task.addTick;
+        if (Logger.IsDebugEnabled) Logger.Debug($"任务完成: 总耗时{totalMs}ms, 重试{task.retryCount}次");
         // P3/P4: 任务已从队列出队，无需再从列表移除。仅递减积压计数。
         Interlocked.Decrement(ref _totalOutstandingTasks);
     }
@@ -383,7 +386,10 @@ public class TranslatorTask
             var messages = _history.BuildMessages(system, inputJson);
 
             var totalChars = texts.Sum(t => t.Length);
-            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
+            // 队列等待时间 = 当前时间 - 本批次最早任务的入队时间
+            long now = Environment.TickCount;
+            long waitMs = now - tasks[0].addTick;
+            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 排队{waitMs}ms, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
             // P1: 传入已解析的 ModelParams Dictionary，避免重复 JSON 解析
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _parsedModelParams);
