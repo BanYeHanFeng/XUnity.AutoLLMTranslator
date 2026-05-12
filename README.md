@@ -19,17 +19,17 @@ APIKey=API密钥
 
 | 参数 | 作用 | 默认值 | 说明 |
 |---|---|---|---|
-| Model | 模型名称 | （无） | 模型需支持 JSON Output，不支持的效果差 |
+| Model | 模型名称 | （无） | 模型需支持 JSON 输出，不支持的效果差 |
 | URL | API 地址 | （无） | |
 | APIKey | API 密钥 | （无） | |
-| MaxWordCount | 最大字数 | `2500` | 触发后截断下一句 |
-| ParallelCount | 并发数 | `1` | >1禁用对话历史，并发占满后合并翻译请求，基于`MaxWordCount` |
-| MaxContext | 最大上下文（token） | `1024` | 超出清空对话历史，不宜超过 15000 |
+| MaxWordCount | 最大字符数 | `2500` | 触发后，下一句使用新批次 |
+| ParallelCount | 并发数 | `1` | >1禁用对话历史，并发占满时，合并翻译，触发`MaxWordCount`后，下一句使用新批次 |
+| MaxContext | 最大上下文（token） | `1024` | 触发后清空对话历史，推荐不超过 15000 |
 | MaxRetry | 重试次数 | `10` | |
 | ModelParams | 模型额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
-| ExtraPrompt | 附加提示词 | （无） | `Config.cs`的EXTRA_PROMPT占位符 |
+| ExtraPrompt | 附加提示词 | （无） | 附加在`Config.cs`文件的{{EXTRA_PROMPT}}占位符 |
 | HalfWidth | 全角转半角 | `True` | |
-| DisableSpamChecks | 禁用 XUnity spam | `True` | `True`减少误关 |
+| DisableSpamChecks | 禁用 XUnity spam | `True` | 推荐`True`减少误关 |
 | ~~LogLevel~~ | ~~日志等级~~ | — | 已移除，由`BepInEx.cfg`控制|
 | ~~Log2File~~ | ~~日志输出到文件~~ | — | 已移除，统一输出`LogOutput.log` |
 | ~~Terminology~~ | ~~术语表~~ | — | 已移除，改用`ExtraPrompt` |
@@ -38,7 +38,7 @@ APIKey=API密钥
 
 ## 相对于上游的主要改动
 
-- **JSON Output + 流式解析**：强制 `response_format: json_object`，SSE 增量拼接，解析更稳定
+- **JSON 输出 + 流式解析**：强制 `response_format: json_object`，SSE 增量拼接，解析更稳定
 - **对话历史**：批次间共享上下文以提升缓存命中率，超出 `MaxContext` 自动清空
 - **Token 与速率统计**：每批次输出输入/输出/缓存 token 及速率，累计用量追踪
 - **限速退避**：429 自动指数退避，不消耗重试次数；超时适配 DeepSeek 10 分钟等待窗口
