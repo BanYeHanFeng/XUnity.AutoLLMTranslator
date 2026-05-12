@@ -156,6 +156,36 @@ internal static class SimpleJson
         }
     }
 
+    /// <summary>Parse an SSE chunk once and extract both content and usage, avoiding double parsing.</summary>
+    public static void ParseSseChunk(string json, out string content, out Dictionary<string, object> usage)
+    {
+        content = null;
+        usage = null;
+        try
+        {
+            int pos = SkipWhitespace(json, 0);
+            var obj = ParseObject(json, ref pos);
+            if (obj == null) return;
+
+            // Extract choices[0].delta.content
+            if (obj.TryGetValue("choices", out object choicesObj) && choicesObj is List<object> choices && choices.Count > 0)
+            {
+                if (choices[0] is Dictionary<string, object> choice
+                    && choice.TryGetValue("delta", out object deltaObj)
+                    && deltaObj is Dictionary<string, object> delta
+                    && delta.TryGetValue("content", out object contentVal))
+                {
+                    content = contentVal as string;
+                }
+            }
+
+            // Extract usage
+            if (obj.TryGetValue("usage", out object usageObj) && usageObj is Dictionary<string, object> usageDict)
+                usage = usageDict;
+        }
+        catch { }
+    }
+
     /// <summary>Extract usage info (prompt_tokens, completion_tokens, cache hit/miss) from SSE chunk.</summary>
     public static Dictionary<string, object> ParseSseUsage(string json)
     {

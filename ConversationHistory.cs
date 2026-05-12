@@ -6,6 +6,8 @@ internal class ConversationHistory
     List<object> _history = new List<object>();
     readonly object _lock = new object();
     int _clearCount = 0;
+    // 缓存历史总字符数，避免每次 CheckAndClearIfOverLimit 遍历所有历史
+    int _cachedHistoryChars = 0;
 
     public bool Enabled { get; set; }
     public int MaxContext { get; set; }
@@ -31,25 +33,22 @@ internal class ConversationHistory
         {
             _history.Add(new Dictionary<string, object> { {"role", "user"}, {"content", inputJson} });
             _history.Add(new Dictionary<string, object> { {"role", "assistant"}, {"content", responseJson} });
+            _cachedHistoryChars += inputJson.Length + responseJson.Length;
         }
     }
 
     public void CheckAndClearIfOverLimit(string systemPrompt, string inputJson)
     {
         if (MaxContext <= 0 || !Enabled) return;
-        int chars = systemPrompt.Length + inputJson.Length;
         lock (_lock)
         {
-            foreach (var msg in _history)
-            {
-                if (msg is Dictionary<string, object> dict && dict.TryGetValue("content", out object content) && content is string s)
-                    chars += s.Length;
-            }
+            int chars = systemPrompt.Length + inputJson.Length + _cachedHistoryChars;
             int estimatedTokens = chars / 2;
             if (Logger.IsDebugEnabled) Logger.Debug($"上下文估算: {estimatedTokens}/{MaxContext} tokens (字符{chars}, 历史{_history.Count / 2}轮)");
             if (estimatedTokens > MaxContext)
             {
                 _history.Clear();
+                _cachedHistoryChars = 0;
                 _clearCount++;
                 Logger.Info($"历史超出 MaxContext({MaxContext})，已清空对话历史（第{_clearCount}次）");
             }

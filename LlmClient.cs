@@ -24,16 +24,12 @@ internal static class LlmClient
 
     public static bool CacheStatsSupported { get { return _cacheStatsSupported; } }
 
-    public static Result Translate(string url, string apiKey, string model, List<object> messages, string modelParams)
+    public static Result Translate(string url, string apiKey, string model, List<object> messages, Dictionary<string, object> parsedModelParams)
     {
         var requestBody = new Dictionary<string, object>();
 
-        if (!string.IsNullOrEmpty(modelParams))
-        {
-            var data = SimpleJson.ParseModelParams(modelParams);
-            foreach (var kv in data)
-                requestBody[kv.Key] = kv.Value;
-        }
+        foreach (var kv in parsedModelParams)
+            requestBody[kv.Key] = kv.Value;
 
         requestBody["model"] = model;
         requestBody["messages"] = messages;
@@ -74,19 +70,10 @@ internal static class LlmClient
                 if (data == "[DONE]") { done = true; break; }
 
                 chunks++;
-                try
-                {
-                    var content = SimpleJson.ParseSseContent(data);
-                    if (!string.IsNullOrEmpty(content))
-                        fullResponse.Append(content);
-
-                    var u = SimpleJson.ParseSseUsage(data);
-                    if (u != null) usage = u;
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("解析流响应出错: " + ex.Message);
-                }
+                SimpleJson.ParseSseChunk(data, out string content, out Dictionary<string, object> u);
+                if (!string.IsNullOrEmpty(content))
+                    fullResponse.Append(content);
+                if (u != null) usage = u;
             }
 
             if (!done && fullResponse.Length > 0)
