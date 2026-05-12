@@ -22,12 +22,12 @@ APIKey=API密钥
 | Model | 模型名称 | （无） | 模型需支持 JSON Output，不支持的效果差 |
 | URL | API 地址 | （无） | |
 | APIKey | API 密钥 | （无） | |
-| MaxWordCount | 最大字符数 | `2500` | |
-| ParallelCount | 并发数 | `1` | `>1`禁用对话历史 |
-| MaxContext | 最大上下文（token） | `1024` | 超出清空对话历史，不宜超过 10000 |
+| MaxWordCount | 最大字数 | `2500` | 触发后截断下一句 |
+| ParallelCount | 并发数 | `1` | >1禁用对话历史，并发占满后合并翻译请求，基于`MaxWordCount` |
+| MaxContext | 最大上下文（token） | `1024` | 超出清空对话历史，不宜超过 15000 |
 | MaxRetry | 重试次数 | `10` | |
-| ModelParams | 额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
-| ExtraPrompt | 附加提示词 | （无） | 附加在内置提示词之后 |
+| ModelParams | 模型额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
+| ExtraPrompt | 附加提示词 | （无） | `Config.cs`的EXTRA_PROMPT占位符 |
 | HalfWidth | 全角转半角 | `True` | |
 | DisableSpamChecks | 禁用 XUnity spam | `True` | `True`减少误关 |
 | ~~LogLevel~~ | ~~日志等级~~ | — | 已移除，由`BepInEx.cfg`控制|

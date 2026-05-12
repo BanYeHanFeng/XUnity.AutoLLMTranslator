@@ -57,6 +57,7 @@ public class TranslatorTask
 
     private static readonly Regex HalfWidthRegex = new Regex(@"[！""＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]", RegexOptions.Compiled);
 
+    private const int MaxQueueSize = 2000;
 
     private string? _apiKey;
     private string? _model;
@@ -65,12 +66,16 @@ public class TranslatorTask
     private int _parallelCount = 1;
     private int _maxRetry = 10;
     private int _maxContext = 1024;
-    private string _modelParams = "";
+    private string _modelParamsRaw = "";
+    private Dictionary<string, object> _parsedModelParams = new Dictionary<string, object>();
+    private string _cachedSystemPromptBase = "";
     private string? _extraPrompt;
     private bool _halfWidth = true;
     private string? DestinationLanguage;
     private string? SourceLanguage;
-    List<TaskData> _taskDatas = new List<TaskData>();
+
+    // 用 Queue 替代 List：SelectTasks O(1) 出队，避免全表扫描
+    Queue<TaskData> _waitingQueue = new Queue<TaskData>();
     HttpListener listener;
     bool _initialized = false;
     private int _port = 20000;
@@ -82,6 +87,12 @@ public class TranslatorTask
     long _totalCacheMissTokens = 0;
     private volatile int _rateLimitDelayMs = 0;
     private volatile bool _shutdownRequested = false;
+    private volatile int curProcessingCount = 0;
+    // 追踪未响应任务总量（用于积压告警）
+    private volatile int _totalOutstandingTasks = 0;
+    private AutoResetEvent _taskAvailable = new AutoResetEvent(false);
+    int _batchSeq = 0;
+    private readonly object _lockObject = new object();
 
     public void Init(IInitializationContext context)
     {
@@ -92,9 +103,14 @@ public class TranslatorTask
         _parallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 1024);
-        _modelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
+        _modelParamsRaw = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
+
+        // P1: ModelParams 预先解析一次，避免每批次重复 JSON 解析
+        if (!string.IsNullOrEmpty(_modelParamsRaw))
+            _parsedModelParams = SimpleJson.ParseModelParams(_modelParamsRaw);
+
         // 定位 BepInEx 根目录：从 TranslatorDirectory 向上找含 core/ 子目录或目录名为 BepInEx 的目录
         var dir = context.TranslatorDirectory;
         for (int i = 0; i < 10; i++)
@@ -138,6 +154,18 @@ public class TranslatorTask
             Logger.Info("APIKey 未配置，Authorization 头将不发送");
         }
 
+        // P2: 预编译 system prompt 的固定部分（语言不会变），减少每批次的字符串替换
+        _cachedSystemPromptBase = Config.prompt_base
+            .Replace("{{TARGET_LAN}}", DestinationLanguage)
+            .Replace("{{SOURCE_LAN}}", SourceLanguage);
+
+        // P8: 确保 ThreadPool 有足够线程处理并发翻译
+        int minWorker, minIo;
+        ThreadPool.GetMinThreads(out minWorker, out minIo);
+        int needed = _parallelCount + 2;
+        if (minWorker < needed || minIo < needed)
+            ThreadPool.SetMinThreads(Math.Max(minWorker, needed), Math.Max(minIo, needed));
+
         const int MaxPortAttempts = 10;
         for (int attempt = 0; attempt < MaxPortAttempts; attempt++)
         {
@@ -159,7 +187,7 @@ public class TranslatorTask
                 Logger.Warn($"端口 {_port} 被占用，尝试 {_port + 1}");
             }
         }
-        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParams} DisableSpamChecks=True");
+        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParamsRaw} DisableSpamChecks=True");
         Logger.Info($"Listening for requests on http://127.0.0.1:{_port}/");
 
 
@@ -240,26 +268,39 @@ public class TranslatorTask
         }
     }
 
+    /// <summary>
+    /// 从等待队列中选取一批任务。调用者必须已持有 _lockObject。
+    /// 优先规则：不混搭重试和非重试任务，retryCount>2 的单独成批。
+    /// </summary>
     List<TaskData> SelectTasks()
     {
         var tasks = new List<TaskData>();
         int toltoken = 0;
-        lock (_lockObject)
+        // caller holds _lockObject — 不再内部获取锁
+        int count = _waitingQueue.Count;
+        while (count > 0)
         {
-            foreach (var task in _taskDatas)
+            var task = _waitingQueue.Peek();
+
+            // 优先规则
+            if (tasks.Count > 0)
             {
-                if (task.state == TaskData.TaskState.Waiting)
-                {
-                    if (task.retryCount > 2 && tasks.Count > 0)
-                        break;
-                    if (tasks.Count > 0 && (tasks[0].retryCount > 0) != (task.retryCount > 0))
-                        break;
-                    toltoken += task.charLen;
-                    tasks.Add(task);
-                    if (toltoken >= _maxWordCount)
-                        break;
-                }
+                // 不混搭重试和非重试
+                if ((tasks[0].retryCount > 0) != (task.retryCount > 0))
+                    break;
+                // 已有任务时，跳过 retryCount > 2 的高重试任务（另起一批）
+                if (task.retryCount > 2)
+                    break;
             }
+
+            // 超出字数上限时截断（至少保证有1条）
+            if (toltoken + task.charLen > _maxWordCount && tasks.Count > 0)
+                break;
+
+            _waitingQueue.Dequeue();
+            tasks.Add(task);
+            toltoken += task.charLen;
+            count--;
         }
         return tasks;
     }
@@ -279,8 +320,20 @@ public class TranslatorTask
 
         lock (_lockObject)
         {
-            _taskDatas.Add(task);
+            // P9: 任务积压上限保护
+            if (_totalOutstandingTasks >= MaxQueueSize)
+            {
+                Logger.Warn($"任务队列已达上限({MaxQueueSize})，拒绝新任务");
+                try { context.Response.Close(); } catch { }
+                return null;
+            }
+
+            _waitingQueue.Enqueue(task);
+            _totalOutstandingTasks++;
         }
+
+        // P6: 唤醒轮询线程立即处理
+        _taskAvailable.Set();
 
         return task;
     }
@@ -299,20 +352,14 @@ public class TranslatorTask
         return sb.ToString();
     }
 
-    int curProcessingCount = 0;
-    int _batchSeq = 0;
-    private readonly object _lockObject = new object();
-
-
     void TaskRespond(TaskData task)
     {
         if (!task.TryRespond())
             Logger.Warn($"响应发送失败: state={task.state} texts[0]={task.texts?[0]}");
-        lock (_lockObject)
-        {
-            _taskDatas.Remove(task);
-        }
+        // P3/P4: 任务已从队列出队，无需再从列表移除。仅递减积压计数。
+        Interlocked.Decrement(ref _totalOutstandingTasks);
     }
+
     void ProcessTaskBatch(List<TaskData> tasks)
     {
         int hashkey = Interlocked.Increment(ref _batchSeq);
@@ -326,11 +373,10 @@ public class TranslatorTask
             foreach (var task in tasks)
                 texts.AddRange(task.texts);
 
+            // P2: 使用预编译 system prompt，只需替换可能变化的 EXTRA_PROMPT
             var extra = string.IsNullOrEmpty(_extraPrompt) ? "" : "\n\n" + _extraPrompt;
-            var system = Config.prompt_base
-                .Replace("{{TARGET_LAN}}", DestinationLanguage)
-                .Replace("{{SOURCE_LAN}}", SourceLanguage)
-                .Replace("{{EXTRA_PROMPT}}", extra);
+            var system = _cachedSystemPromptBase + extra;
+
             var inputJson = BuildInputJson(texts);
 
             _history.CheckAndClearIfOverLimit(system, inputJson);
@@ -339,7 +385,8 @@ public class TranslatorTask
             var totalChars = texts.Sum(t => t.Length);
             Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
 
-            var result = LlmClient.Translate(_url, _apiKey, _model, messages, _modelParams);
+            // P1: 传入已解析的 ModelParams Dictionary，避免重复 JSON 解析
+            var result = LlmClient.Translate(_url, _apiKey, _model, messages, _parsedModelParams);
 
             if (Logger.IsDebugEnabled) Logger.Debug($"full流({result.FullResponse.Length}字, {result.ChunkCount}块): {result.FullResponse}");
 
@@ -432,40 +479,62 @@ public class TranslatorTask
             if (Logger.IsDebugEnabled) Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
             if (isRateLimit)
             {
-                foreach (var task in tasks)
-                    if (task.state != TaskData.TaskState.Completed && task.state != TaskData.TaskState.Closed)
-                        task.state = TaskData.TaskState.Waiting;
+                // 限速重试：重新入队，不消耗重试次数
+                bool hasRetry = false;
+                lock (_lockObject)
+                {
+                    foreach (var task in tasks)
+                    {
+                        if (task.state != TaskData.TaskState.Completed && task.state != TaskData.TaskState.Closed)
+                        {
+                            task.state = TaskData.TaskState.Waiting;
+                            _waitingQueue.Enqueue(task);
+                            hasRetry = true;
+                        }
+                    }
+                }
                 Logger.Info($"批次 {hashkey}: 限速重试 {tasks.Count} 条（不消耗重试次数）");
+                if (hasRetry)
+                    _taskAvailable.Set();
             }
             else
             {
                 int retried = 0, failed = 0;
-                foreach (var task in tasks)
+                bool hasRetry = false;
+                lock (_lockObject)
                 {
-                    if (task.state == TaskData.TaskState.Completed || task.state == TaskData.TaskState.Closed)
-                        continue;
-                    task.retryCount++;
-                    if (task.retryCount < _maxRetry)
+                    foreach (var task in tasks)
                     {
-                        if (Logger.IsDebugEnabled) Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
-                        task.state = TaskData.TaskState.Waiting;
-                        task.result = null;
-                        retried++;
-                    }
-                    else
-                    {
-                        Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
-                        task.state = TaskData.TaskState.Failed;
-                        TaskRespond(task);
-                        failed++;
+                        if (task.state == TaskData.TaskState.Completed || task.state == TaskData.TaskState.Closed)
+                            continue;
+                        task.retryCount++;
+                        if (task.retryCount < _maxRetry)
+                        {
+                            if (Logger.IsDebugEnabled) Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
+                            task.state = TaskData.TaskState.Waiting;
+                            _waitingQueue.Enqueue(task);  // 重新入队
+                            task.result = null;
+                            retried++;
+                            hasRetry = true;
+                        }
+                        else
+                        {
+                            Logger.Error($"重试耗尽({_maxRetry}次), 放弃: {task.texts[0]}");
+                            task.state = TaskData.TaskState.Failed;
+                            TaskRespond(task);
+                            failed++;
+                        }
                     }
                 }
                 if (retried > 0 || failed > 0) Logger.Info($"批次 {hashkey}: {retried} 条重试, {failed} 条放弃");
+                if (hasRetry)
+                    _taskAvailable.Set();
             }
             lock (_lockObject)
                 curProcessingCount--;
         }
     }
+
     //轮询
     public void Polling()
     {
@@ -473,51 +542,51 @@ public class TranslatorTask
         {
             try
             {
+                // P6: 使用事件等待而非固定 Sleep：有新任务时立即唤醒，否则每 50ms 轮询保底
+                _taskAvailable.WaitOne(50);
 
-                Thread.Sleep(50);
                 if (curProcessingCount >= _parallelCount)
-                {
                     continue;
-                }
-                int waitingCount = 0;
+
+                // P7: 积压统计移到锁内，避免读取不一致
                 int waitingToken = 0;
+                int queueCount = 0;
+                List<List<TaskData>> batches = new List<List<TaskData>>();
+
                 lock (_lockObject)
                 {
-                    foreach (var t in _taskDatas)
+                    // P3: 扫描等待队列计数
+                    foreach (var t in _waitingQueue)
                     {
-                        if (t.state == TaskData.TaskState.Waiting)
-                        {
-                            waitingCount++;
-                            waitingToken += t.charLen;
-                        }
+                        waitingToken += t.charLen;
+                        queueCount++;
                     }
-                }
 
-                if (_taskDatas.Count > 200)
-                    Logger.Warn($"任务积压严重: {_taskDatas.Count} 条，翻译速度可能跟不上文本到达速度");
+                    if (queueCount > 0)
+                    {
+                        Logger.Info($"触发发送: {queueCount}条, {waitingToken}/{_maxWordCount} 字");
+                    }
 
-                if (waitingCount > 0)
-                {
-                    Logger.Info($"触发发送: {waitingCount}条, {waitingToken}/{_maxWordCount} 字");
-                }
-
-                List<List<TaskData>> _taskDatass = new List<List<TaskData>>();
-                lock (_lockObject)
-                {
+                    // 批量选取
                     var batch = SelectTasks();
                     while (batch.Count > 0 && curProcessingCount < _parallelCount)
                     {
                         curProcessingCount++;
                         foreach (var task in batch)
                             task.state = TaskData.TaskState.Processing;
-                        _taskDatass.Add(batch);
+                        batches.Add(batch);
                         batch = SelectTasks();
                     }
                 }
 
-                if (_taskDatass.Count > 0)
+                // P7: 积压告警移到锁外打印（只读统计数据，精确性要求不高）
+                int totalOutstanding = _totalOutstandingTasks;
+                if (totalOutstanding > 200)
+                    Logger.Warn($"任务积压严重: {totalOutstanding} 条，翻译速度可能跟不上文本到达速度");
+
+                if (batches.Count > 0)
                 {
-                    foreach (var tasklist in _taskDatass)
+                    foreach (var tasklist in batches)
                     {
                         var totalChars = tasklist.Sum(t => t.charLen);
                         Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
@@ -537,5 +606,7 @@ public class TranslatorTask
         _shutdownRequested = true;
         try { listener.Stop(); } catch { }
         try { listener.Close(); } catch { }
+        try { _taskAvailable.Set(); } catch { }
+        try { _taskAvailable.Close(); } catch { }
     }
 }
