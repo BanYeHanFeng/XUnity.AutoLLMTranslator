@@ -6,11 +6,10 @@ using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System;
-using System.Linq;
 
 public class TranslatorTask
 {
-    public class TaskData
+    private class TaskData
     {
         public enum TaskState
         {
@@ -48,7 +47,7 @@ public class TranslatorTask
             }
             catch (Exception ex)
             {
-                Logger.Error($"响应失败: {ex.Message}");
+                Logger.Error($"响应失败: {ex}");
             }            
             return false;
         }
@@ -69,14 +68,14 @@ public class TranslatorTask
     private string _modelParamsRaw = "";
     private Dictionary<string, object> _parsedModelParams = new Dictionary<string, object>();
     private string _cachedSystemPromptBase = "";
-    private string? _extraPrompt;
+    private bool _customPrompt = false;
+    private string? _bepinExRoot;
     private bool _halfWidth = true;
-    private string? DestinationLanguage;
-    private string? SourceLanguage;
+    private string? _destinationLanguage;
+    private string? _sourceLanguage;
 
-    // 用 Queue 替代 List：SelectTasks O(1) 出队，避免全表扫描
     Queue<TaskData> _waitingQueue = new Queue<TaskData>();
-    HttpListener listener;
+    HttpListener _listener;
     bool _initialized = false;
     private int _port = 20000;
     public int Port => _port;
@@ -86,10 +85,11 @@ public class TranslatorTask
     long _totalCacheHitTokens = 0;
     long _totalCacheMissTokens = 0;
     private volatile int _rateLimitDelayMs = 0;
+    private volatile int _rateLimitStart = 0;
     private volatile bool _shutdownRequested = false;
-    private volatile int curProcessingCount = 0;
-    // 追踪未响应任务总量（用于积压告警）
+    private volatile int _curProcessingCount = 0;
     private volatile int _totalOutstandingTasks = 0;
+    private int _waitingTotalChars = 0;
     private AutoResetEvent _taskAvailable = new AutoResetEvent(false);
     int _batchSeq = 0;
     private readonly object _lockObject = new object();
@@ -104,7 +104,7 @@ public class TranslatorTask
         _maxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         _maxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 1024);
         _modelParamsRaw = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
-        _extraPrompt = context.GetOrCreateSetting("AutoLLM", "ExtraPrompt", "");
+        _customPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
         _halfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
 
         // P1: ModelParams 预先解析一次，避免每批次重复 JSON 解析
@@ -121,6 +121,7 @@ public class TranslatorTask
             if (parent == dir || string.IsNullOrEmpty(parent)) break;
             dir = parent;
         }
+        _bepinExRoot = dir;
         Logger.Init(dir);
         if (context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true))
         {
@@ -142,8 +143,8 @@ public class TranslatorTask
             _url += "chat/completions";
         }
 
-        DestinationLanguage = context.DestinationLanguage;
-        SourceLanguage = context.SourceLanguage;
+        _destinationLanguage = context.DestinationLanguage;
+        _sourceLanguage = context.SourceLanguage;
         if (string.IsNullOrEmpty(_model) || string.IsNullOrEmpty(_url))
         {
             Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
@@ -155,9 +156,49 @@ public class TranslatorTask
         }
 
         // P2: 预编译 system prompt 的固定部分（语言不会变），减少每批次的字符串替换
-        _cachedSystemPromptBase = Config.prompt_base
-            .Replace("{{TARGET_LAN}}", DestinationLanguage)
-            .Replace("{{SOURCE_LAN}}", SourceLanguage);
+        string systemPromptBase;
+        if (_customPrompt)
+        {
+            var customPromptPath = Path.Combine(Path.Combine(_bepinExRoot, "config"), "AutoLLM_CustomPrompt.json");
+            if (File.Exists(customPromptPath))
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(customPromptPath, Encoding.UTF8);
+                    var promptObj = SimpleJson.ParseJsonObject(jsonContent);
+                    systemPromptBase = (promptObj != null && promptObj.TryGetValue("system_prompt", out var cp) ? cp as string : null) ?? Config.PromptBase;
+                    Logger.Info($"已加载自定义系统提示词: {customPromptPath}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"读取自定义提示词文件失败: {ex}，使用默认提示词");
+                    systemPromptBase = Config.PromptBase;
+                }
+            }
+            else
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.Combine(_bepinExRoot, "config"));
+                    var defaultContent = "{\"system_prompt\": " + SimpleJson.Serialize(Config.PromptBase) + "}";
+                    File.WriteAllText(customPromptPath, defaultContent, Encoding.UTF8);
+                    Logger.Info($"已创建自定义提示词文件(默认): {customPromptPath}");
+                    systemPromptBase = Config.PromptBase;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"创建自定义提示词文件失败: {ex}，使用默认提示词");
+                    systemPromptBase = Config.PromptBase;
+                }
+            }
+        }
+        else
+        {
+            systemPromptBase = Config.PromptBase;
+        }
+        _cachedSystemPromptBase = systemPromptBase
+            .Replace("{{TARGET_LAN}}", _destinationLanguage)
+            .Replace("{{SOURCE_LAN}}", _sourceLanguage);
 
         // P8: 确保 ThreadPool 有足够线程处理并发翻译
         int minWorker, minIo;
@@ -172,22 +213,22 @@ public class TranslatorTask
             try
             {
                 _port = 20000 + attempt;
-                listener = new HttpListener();
-                listener.Prefixes.Add($"http://127.0.0.1:{_port}/");
-                listener.Start();
+                _listener = new HttpListener();
+                _listener.Prefixes.Add($"http://127.0.0.1:{_port}/");
+                _listener.Start();
                 break;
             }
             catch (Exception ex)
             {
                 if (attempt == MaxPortAttempts - 1)
                 {
-                    Logger.Error($"无法绑定任何端口 (20000-{20000 + MaxPortAttempts - 1}): {ex.Message}");
+                    Logger.Error($"无法绑定任何端口 (20000-{20000 + MaxPortAttempts - 1}): {ex}");
                     return;
                 }
                 Logger.Warn($"端口 {_port} 被占用，尝试 {_port + 1}");
             }
         }
-        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} MaxRetry={_maxRetry} HalfWidth={_halfWidth} ExtraPrompt={(string.IsNullOrEmpty(_extraPrompt) ? "无" : (_extraPrompt.Length + "字"))} ModelParams={_modelParamsRaw} DisableSpamChecks=True");
+        Logger.Info($"已启动 | Model={_model} URL={_url} MaxWordCount={_maxWordCount} MaxContext={_maxContext} ParallelCount={_parallelCount} MaxRetry={_maxRetry} HalfWidth={_halfWidth} CustomPrompt={(_customPrompt ? "是" : "否")} ModelParams={_modelParamsRaw} DisableSpamChecks=True");
         Logger.Info($"Listening for requests on http://127.0.0.1:{_port}/");
 
 
@@ -198,7 +239,7 @@ public class TranslatorTask
             {
                 while (!_shutdownRequested)
                 {
-                    var ctx = listener.GetContext();
+                    var ctx = _listener.GetContext();
                     ProcessRequest(ctx);
                 }
             }
@@ -206,7 +247,7 @@ public class TranslatorTask
             catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
-                Logger.Error($"HTTP listener error: {ex.Message}");
+                Logger.Error($"HTTP listener error: {ex}");
             }
         });
         listenerThread.IsBackground = true;
@@ -263,7 +304,7 @@ public class TranslatorTask
         }
         catch (Exception ex)
         {
-            Logger.Error($"处理请求时发生错误: {ex.Message}");
+            Logger.Error($"处理请求时发生错误: {ex}");
             context.Response.Close();
         }
     }
@@ -275,7 +316,7 @@ public class TranslatorTask
     List<TaskData> SelectTasks()
     {
         var tasks = new List<TaskData>();
-        int toltoken = 0;
+        int totalChars = 0;
         // caller holds _lockObject — 不再内部获取锁
         int count = _waitingQueue.Count;
         while (count > 0)
@@ -294,14 +335,16 @@ public class TranslatorTask
             }
 
             // 超出字数上限时截断（至少保证有1条）
-            if (toltoken + task.charLen > _maxWordCount && tasks.Count > 0)
+            if (totalChars + task.charLen > _maxWordCount && tasks.Count > 0)
                 break;
 
             _waitingQueue.Dequeue();
             tasks.Add(task);
-            toltoken += task.charLen;
+            totalChars += task.charLen;
             count--;
         }
+        if (tasks.Count > 0)
+            _waitingTotalChars -= totalChars;
         return tasks;
     }
 
@@ -329,6 +372,7 @@ public class TranslatorTask
             }
 
             _waitingQueue.Enqueue(task);
+            _waitingTotalChars += totalLen;
             _totalOutstandingTasks++;
         }
 
@@ -376,20 +420,19 @@ public class TranslatorTask
             foreach (var task in tasks)
                 texts.AddRange(task.texts);
 
-            // P2: 使用预编译 system prompt，只需替换可能变化的 EXTRA_PROMPT
-            var extra = string.IsNullOrEmpty(_extraPrompt) ? "" : "\n\n" + _extraPrompt;
-            var system = _cachedSystemPromptBase + extra;
+            var system = _cachedSystemPromptBase;
 
             var inputJson = BuildInputJson(texts);
 
             _history.CheckAndClearIfOverLimit(system, inputJson);
             var messages = _history.BuildMessages(system, inputJson);
 
-            var totalChars = texts.Sum(t => t.Length);
+            int totalChars = 0;
+            foreach (var t in texts) totalChars += t.Length;
             // 队列等待时间 = 当前时间 - 本批次最早任务的入队时间
             long now = Environment.TickCount;
             long waitMs = now - tasks[0].addTick;
-            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 排队{waitMs}ms, 历史{_history.TurnCount}轮, 并行 {curProcessingCount}/{_parallelCount}");
+            Logger.Info($"批次 {hashkey}: 发送 {texts.Count} 条文本, {totalChars} 字符, 排队{waitMs}ms, 历史{_history.TurnCount}轮, 并行 {_curProcessingCount}/{_parallelCount}");
 
             // P1: 传入已解析的 ModelParams Dictionary，避免重复 JSON 解析
             var result = LlmClient.Translate(_url, _apiKey, _model, messages, _parsedModelParams);
@@ -451,7 +494,7 @@ public class TranslatorTask
             int statusCode = 0;
             if (ex.Response is HttpWebResponse httpResp)
                 statusCode = (int)httpResp.StatusCode;
-            Logger.Error($"翻译失败 [{statusCode}]: {ex.Message}");
+            Logger.Error($"翻译失败 [{statusCode}]: {ex}");
             if (ex.Response != null)
             {
                 using (var errorResponse = (HttpWebResponse)ex.Response)
@@ -467,8 +510,8 @@ public class TranslatorTask
             {
                 isRateLimit = true;
                 _rateLimitDelayMs = _rateLimitDelayMs == 0 ? 5000 : Math.Min(_rateLimitDelayMs * 2, 60000);
+                _rateLimitStart = Environment.TickCount;
                 Logger.Warn($"限速退避: {_rateLimitDelayMs / 1000}s");
-                Thread.Sleep(_rateLimitDelayMs);
             }
             else
             {
@@ -477,12 +520,14 @@ public class TranslatorTask
         }
         catch (Exception ex)
         {
-            Logger.Error($"翻译失败: {ex.Message}");
+            Logger.Error($"翻译失败: {ex}");
             _rateLimitDelayMs = 0;
         }
         finally
         {
-            if (Logger.IsDebugEnabled) Logger.Debug($"翻译结束:{hashkey} curProcessing={curProcessingCount}");
+            if (Logger.IsDebugEnabled) Logger.Debug($"翻译结束:{hashkey} curProcessing={_curProcessingCount}");
+            lock (_lockObject)
+                _curProcessingCount--;
             if (isRateLimit)
             {
                 // 限速重试：重新入队，不消耗重试次数
@@ -495,6 +540,7 @@ public class TranslatorTask
                         {
                             task.state = TaskData.TaskState.Waiting;
                             _waitingQueue.Enqueue(task);
+                            _waitingTotalChars += task.charLen;
                             hasRetry = true;
                         }
                     }
@@ -518,7 +564,8 @@ public class TranslatorTask
                         {
                             if (Logger.IsDebugEnabled) Logger.Debug($"重试({task.retryCount}/{_maxRetry}): {task.texts[0]}");
                             task.state = TaskData.TaskState.Waiting;
-                            _waitingQueue.Enqueue(task);  // 重新入队
+                            _waitingQueue.Enqueue(task);
+                            _waitingTotalChars += task.charLen;
                             task.result = null;
                             retried++;
                             hasRetry = true;
@@ -536,13 +583,11 @@ public class TranslatorTask
                 if (hasRetry)
                     _taskAvailable.Set();
             }
-            lock (_lockObject)
-                curProcessingCount--;
         }
     }
 
     //轮询
-    public void Polling()
+    private void Polling()
     {
         while (!_shutdownRequested)
         {
@@ -551,33 +596,35 @@ public class TranslatorTask
                 // P6: 使用事件等待而非固定 Sleep：有新任务时立即唤醒，否则每 50ms 轮询保底
                 _taskAvailable.WaitOne(50);
 
-                if (curProcessingCount >= _parallelCount)
+                if (_rateLimitStart > 0)
+                {
+                    if (unchecked((uint)(Environment.TickCount - _rateLimitStart)) < (uint)_rateLimitDelayMs)
+                        continue;
+                    _rateLimitStart = 0;
+                }
+
+                if (_curProcessingCount >= _parallelCount)
                     continue;
 
-                // P7: 积压统计移到锁内，避免读取不一致
-                int waitingToken = 0;
                 int queueCount = 0;
+                int waitingChars = 0;
                 List<List<TaskData>> batches = new List<List<TaskData>>();
 
                 lock (_lockObject)
                 {
-                    // P3: 扫描等待队列计数
-                    foreach (var t in _waitingQueue)
-                    {
-                        waitingToken += t.charLen;
-                        queueCount++;
-                    }
+                    queueCount = _waitingQueue.Count;
+                    waitingChars = _waitingTotalChars;
 
                     if (queueCount > 0)
                     {
-                        Logger.Info($"触发发送: {queueCount}条, {waitingToken}/{_maxWordCount} 字");
+                        Logger.Info($"触发发送: {queueCount}条, {waitingChars}/{_maxWordCount} 字");
                     }
 
                     // 批量选取
                     var batch = SelectTasks();
-                    while (batch.Count > 0 && curProcessingCount < _parallelCount)
+                    while (batch.Count > 0 && _curProcessingCount < _parallelCount)
                     {
-                        curProcessingCount++;
+                        _curProcessingCount++;
                         foreach (var task in batch)
                             task.state = TaskData.TaskState.Processing;
                         batches.Add(batch);
@@ -594,15 +641,16 @@ public class TranslatorTask
                 {
                     foreach (var tasklist in batches)
                     {
-                        var totalChars = tasklist.Sum(t => t.charLen);
-                        Logger.Info($"批次启动: {tasklist.Count}条 {totalChars}字符 并行 {curProcessingCount}/{_parallelCount}");
+                        int batchChars = 0;
+                        foreach (var t in tasklist) batchChars += t.charLen;
+                        Logger.Info($"批次启动: {tasklist.Count}条 {batchChars}字符 并行 {_curProcessingCount}/{_parallelCount}");
                         ThreadPool.QueueUserWorkItem(_ => ProcessTaskBatch(tasklist));
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error(ex.Message);
+                Logger.Error(ex.ToString());
             }
         }
     }
@@ -610,8 +658,8 @@ public class TranslatorTask
     public void Shutdown()
     {
         _shutdownRequested = true;
-        try { listener.Stop(); } catch { }
-        try { listener.Close(); } catch { }
+        try { _listener.Stop(); } catch { }
+        try { _listener.Close(); } catch { }
         try { _taskAvailable.Set(); } catch { }
         try { _taskAvailable.Close(); } catch { }
     }

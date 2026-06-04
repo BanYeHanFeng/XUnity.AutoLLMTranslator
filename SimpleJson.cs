@@ -134,28 +134,6 @@ internal static class SimpleJson
         }
     }
 
-    /// <summary>Extract choices[0].delta.content from an SSE stream chunk.</summary>
-    public static string ParseSseContent(string json)
-    {
-        try
-        {
-            int pos = SkipWhitespace(json, 0);
-            var obj = ParseObject(json, ref pos);
-            if (obj == null) return null;
-            var choices = obj.ContainsKey("choices") ? obj["choices"] as List<object> : null;
-            if (choices == null || choices.Count == 0) return null;
-            var choice = choices[0] as Dictionary<string, object>;
-            if (choice == null) return null;
-            var delta = choice.ContainsKey("delta") ? choice["delta"] as Dictionary<string, object> : null;
-            if (delta == null) return null;
-            return delta.ContainsKey("content") ? delta["content"] as string : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     /// <summary>Parse an SSE chunk once and extract both content and usage, avoiding double parsing.</summary>
     public static void ParseSseChunk(string json, out string content, out Dictionary<string, object> usage)
     {
@@ -184,22 +162,6 @@ internal static class SimpleJson
                 usage = usageDict;
         }
         catch { }
-    }
-
-    /// <summary>Extract usage info (prompt_tokens, completion_tokens, cache hit/miss) from SSE chunk.</summary>
-    public static Dictionary<string, object> ParseSseUsage(string json)
-    {
-        try
-        {
-            int pos = SkipWhitespace(json, 0);
-            var obj = ParseObject(json, ref pos);
-            if (obj == null || !obj.ContainsKey("usage")) return null;
-            return obj["usage"] as Dictionary<string, object>;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static int SkipWhitespace(string s, int pos)

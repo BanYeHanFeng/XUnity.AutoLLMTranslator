@@ -14,12 +14,12 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
     public override string Id => "AutoLLMTranslate";
 
     public override string FriendlyName => "AutoLLM Translate";
-    TranslatorTask task = new TranslatorTask();
+    TranslatorTask _task = new TranslatorTask();
 
     public override void Initialize(IInitializationContext context)
     {
         context.SetTranslationDelay(0.1f);
-        task.Init(context);
+        _task.Init(context);
         Logger.Info("端点初始化完成");
     }
 
@@ -31,7 +31,7 @@ internal class LLMTranslatorEndpoint : WwwEndpoint
             return;
         }
         if (Logger.IsDebugEnabled) Logger.Debug($"翻译请求: {context.UntranslatedTexts[0]}");
-        context.Complete(new WwwRequestInfo($"http://127.0.0.1:{task.Port}/", SimpleJson.SerializeTexts(context.UntranslatedTexts)));
+        context.Complete(new WwwRequestInfo($"http://127.0.0.1:{_task.Port}/", SimpleJson.SerializeTexts(context.UntranslatedTexts)));
     }
 
     public override void OnExtractTranslation(IWwwTranslationExtractionContext context)
