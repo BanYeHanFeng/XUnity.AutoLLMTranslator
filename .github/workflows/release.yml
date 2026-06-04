@@ -35,11 +35,15 @@ jobs:
         run: |
           if ("${{ github.ref_type }}" -eq "tag") {
             $version = "${{ github.ref_name }}"
-            gh release delete "$version" --yes --cleanup-tag 2>$null
-            gh release create "$version" `
-              --title "Release $version" `
-              --generate-notes `
-              "bin/Release/net35/XUnity.AutoLLMTranslator.dll"
+            gh release view "$version" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              gh release upload "$version" "bin/Release/net35/XUnity.AutoLLMTranslator.dll" --clobber
+            } else {
+              gh release create "$version" `
+                --title "Release $version" `
+                --generate-notes `
+                "bin/Release/net35/XUnity.AutoLLMTranslator.dll"
+            }
           } else {
             $date = Get-Date -Format 'yyyyMMdd'
             $shortHash = git rev-parse --short HEAD
