@@ -159,14 +159,12 @@ public class TranslatorTask
         string systemPromptBase;
         if (_customPrompt)
         {
-            var customPromptPath = Path.Combine(Path.Combine(_bepinExRoot, "config"), "AutoLLM_CustomPrompt.json");
+            var customPromptPath = Path.Combine(Path.Combine(_bepinExRoot, "config"), "AutoLLM_CustomPrompt.txt");
             if (File.Exists(customPromptPath))
             {
                 try
                 {
-                    var jsonContent = File.ReadAllText(customPromptPath, Encoding.UTF8);
-                    var promptObj = SimpleJson.ParseJsonObject(jsonContent);
-                    systemPromptBase = (promptObj != null && promptObj.TryGetValue("system_prompt", out var cp) ? cp as string : null) ?? Config.PromptBase;
+                    systemPromptBase = File.ReadAllText(customPromptPath, Encoding.UTF8);
                     Logger.Info($"已加载自定义系统提示词: {customPromptPath}");
                 }
                 catch (Exception ex)
@@ -180,20 +178,7 @@ public class TranslatorTask
                 try
                 {
                     Directory.CreateDirectory(Path.Combine(_bepinExRoot, "config"));
-                    var sb = new StringBuilder();
-                    foreach (char c in Config.PromptBase)
-                    {
-                        switch (c)
-                        {
-                            case '\\': sb.Append("\\\\"); break;
-                            case '"':  sb.Append("\\\""); break;
-                            case '\r': break;
-                            case '\n': sb.Append("\\n"); break;
-                            default:   sb.Append(c); break;
-                        }
-                    }
-                    var defaultContent = "{\r\n  \"system_prompt\": \"" + sb.ToString() + "\"\r\n}\r\n";
-                    File.WriteAllText(customPromptPath, defaultContent, Encoding.UTF8);
+                    File.WriteAllText(customPromptPath, Config.PromptBase, Encoding.UTF8);
                     Logger.Info($"已创建自定义提示词文件(默认): {customPromptPath}");
                     systemPromptBase = Config.PromptBase;
                 }

@@ -43,7 +43,7 @@ APIKey=api-key
 | MaxContext | Max context (tokens) | `1024` | Clears conversation history when exceeded; recommended ≤15000 |
 | MaxRetry | Max retry attempts | `10` | |
 | ModelParams | Extra model parameters (JSON) | (none) | e.g. `{"temperature":0.3}` |
-| CustomPrompt | Custom system prompt | `False` | When enabled, config file is at `BepInEx/config/AutoLLM_CustomPrompt.json` |
+| CustomPrompt | Custom system prompt | `False` | When enabled, config file is at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | Full-width to half-width conversion | `True` | |
 | DisableSpamChecks | Disable XUnity spam detection | `True` | Recommended to minimize false-positives |
 | ~~LogLevel~~ | ~~Log level~~ | — | Removed, controlled by `BepInEx.cfg` |

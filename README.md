@@ -43,7 +43,7 @@ APIKey=API密钥
 | MaxContext | 最大上下文（token） | `1024` | 触发后清空对话历史，推荐不超过 15000 |
 | MaxRetry | 重试次数 | `10` | |
 | ModelParams | 模型额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
-| CustomPrompt | 自定义系统提示词 | `False` | 开启后，配置文件在`BepInEx/config/AutoLLM_CustomPrompt.json` |
+| CustomPrompt | 自定义系统提示词 | `False` | 开启后，配置文件在`BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | 全角转半角 | `True` | |
 | DisableSpamChecks | 禁用 XUnity spam | `True` | 推荐`True`减少误关 |
 | ~~LogLevel~~ | ~~日志等级~~ | — | 已移除，由`BepInEx.cfg`控制 |
