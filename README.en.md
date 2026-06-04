@@ -11,14 +11,14 @@
 - [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) — **Upstream repository**
 
 ## Key Changes from Upstream
+- **Architecture Overhaul**: Removed the HTTP proxy layer (HttpListener), now directly implements `ITranslateEndpoint`; 663-line monolith split into 15 single-responsibility files with only one interface
 - **JSON Output Mode**: Requires LLM to output translations in JSON format, combined with streaming incremental parsing to prevent format-related failures
 - **Conversation History & Cache Reuse**: Multiple batches share context, leveraging LLM caching to reduce costs; history auto-clears when exceeding the limit
 - **Token Usage Statistics**: Real-time display of input/output token consumption and cache hit/miss per batch
-- **Custom System Prompt**: Load fully customized translation style and rules from a local JSON file; auto-generates default template on first enable
+- **Custom System Prompt**: Load fully customized translation style and rules from a local `.txt` file; auto-generates default template on first enable (`BepInEx/config/AutoLLM_CustomPrompt.txt`)
 - **Rate Limit Backoff**: Automatically waits and retries on API rate limits with exponential backoff, without consuming retry attempts
 - **Batch Merging**: Multiple short texts are automatically merged into a single translation round
-- **Event-Driven Scheduling**: Immediate response to new tasks instead of fixed-interval polling, reducing latency and idle overhead
-- **Port Auto-Retry**: Internal service automatically tries the next port on conflict, preventing startup failures
+- **Event-Driven Scheduling**: `AutoResetEvent`-based wakeup with 50ms fallback polling, immediate response to new tasks with reduced latency
 - **Log Level Control**: Log levels managed by the BepInEx unified configuration file
 - **Streamlined Configuration**: Removed unused parameters such as term glossary, game name/description
 
