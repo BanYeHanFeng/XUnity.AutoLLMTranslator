@@ -35,6 +35,7 @@ jobs:
         run: |
           if ("${{ github.ref_type }}" -eq "tag") {
             $version = "${{ github.ref_name }}"
+            gh release delete "$version" --yes --cleanup-tag 2>$null
             gh release create "$version" `
               --title "Release $version" `
               --generate-notes `
