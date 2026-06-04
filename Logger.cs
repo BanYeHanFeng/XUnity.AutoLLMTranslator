@@ -1,7 +1,7 @@
 ﻿using System;
 using XUnity.Common.Logging;
 
-public static class Logger
+internal static class Logger
 {
   static bool _infoEnabled  = true;
   static bool _warnEnabled  = true;
