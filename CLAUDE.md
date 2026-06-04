@@ -95,12 +95,11 @@ XUnity.AutoLLMTranslator 是一个 **Unity 游戏文本自动翻译插件**，�
 
 **作用**: 存放翻译专用的 system prompt 模板。
 
-包含三个占位符：
+包含两个占位符：
 | 占位符 | 替换内容 |
 |---|---|
 | `{{SOURCE_LAN}}` | 源语言（由框架提供） |
 | `{{TARGET_LAN}}` | 目标语言（由框架提供） |
-| `{{EXTRA_PROMPT}}` | 用户自定义附加提示（ExtraPrompt 配置项） |
 
 提示词规则要点：
 1. 不得拒绝翻译
@@ -244,7 +243,7 @@ TaskData.TryRespond() → 返回译文给框架
 | `MaxContext` | 1024 | 上下文限额(token)，超出清空历史。建议 ≤50000 |
 | `MaxRetry` | 10 | 翻译失败最大重试次数 |
 | `ModelParams` | (空) | 额外 JSON 参数，合并到请求体（如 `{"temperature":0.3}`） |
-| `ExtraPrompt` | (空) | 附加提示词，追加到 system prompt 末尾 |
+| `CustomPrompt` | False | 是否使用自定义系统提示词（从 `BepInEx/config/AutoLLM_CustomPrompt.json` 读取） |
 | `HalfWidth` | True | 是否将全角符号转为半角 |
 | `DisableSpamChecks` | True | 是否禁用 XUnity 的 spam 检测 |
 
