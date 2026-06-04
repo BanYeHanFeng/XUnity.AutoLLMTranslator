@@ -180,7 +180,19 @@ public class TranslatorTask
                 try
                 {
                     Directory.CreateDirectory(Path.Combine(_bepinExRoot, "config"));
-                    var defaultContent = "{\"system_prompt\": " + SimpleJson.Serialize(Config.PromptBase) + "}";
+                    var sb = new StringBuilder();
+                    foreach (char c in Config.PromptBase)
+                    {
+                        switch (c)
+                        {
+                            case '\\': sb.Append("\\\\"); break;
+                            case '"':  sb.Append("\\\""); break;
+                            case '\r': break;
+                            case '\n': sb.Append("\\n"); break;
+                            default:   sb.Append(c); break;
+                        }
+                    }
+                    var defaultContent = "{\r\n  \"system_prompt\": \"" + sb.ToString() + "\"\r\n}\r\n";
                     File.WriteAllText(customPromptPath, defaultContent, Encoding.UTF8);
                     Logger.Info($"已创建自定义提示词文件(默认): {customPromptPath}");
                     systemPromptBase = Config.PromptBase;
