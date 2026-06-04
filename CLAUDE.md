@@ -243,7 +243,7 @@ TaskData.TryRespond() → 返回译文给框架
 | `MaxContext` | 1024 | 上下文限额(token)，超出清空历史。建议 ≤50000 |
 | `MaxRetry` | 10 | 翻译失败最大重试次数 |
 | `ModelParams` | (空) | 额外 JSON 参数，合并到请求体（如 `{"temperature":0.3}`） |
-| `CustomPrompt` | False | 是否使用自定义系统提示词（从 `BepInEx/config/AutoLLM_CustomPrompt.json` 读取） |
+| `CustomPrompt` | False | 是否使用自定义系统提示词（从 `BepInEx/config/AutoLLM_CustomPrompt.txt` 读取） |
 | `HalfWidth` | True | 是否将全角符号转为半角 |
 | `DisableSpamChecks` | True | 是否禁用 XUnity 的 spam 检测 |
 
