@@ -18,7 +18,7 @@ internal static class PromptManager
         }
         else
         {
-            var path = Path.Combine(config.BepInExRoot, "config", "AutoLLM_CustomPrompt.txt");
+            var path = Path.Combine(Path.Combine(config.BepInExRoot, "config"), "AutoLLM_CustomPrompt.txt");
             if (File.Exists(path))
             {
                 try { basePrompt = File.ReadAllText(path, Encoding.UTF8); }
