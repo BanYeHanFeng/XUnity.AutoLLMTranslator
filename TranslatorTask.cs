@@ -348,7 +348,7 @@ public class TranslatorTask
         return tasks;
     }
 
-    public TaskData AddTask(string[] texts, HttpListenerContext context)
+    private TaskData AddTask(string[] texts, HttpListenerContext context)
     {
         if (texts == null || texts.Length == 0)
         {
