@@ -28,6 +28,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $gameDir | Out-Null
           dotnet build XUnity.AutoLLMTranslator.sln -c Release --no-restore "/p:GameDir=$gameDir\"
 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XUnity.AutoLLMTranslator
+          path: bin/Release/net35/XUnity.AutoLLMTranslator.dll
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
