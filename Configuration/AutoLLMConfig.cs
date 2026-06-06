@@ -12,10 +12,9 @@ internal class AutoLLMConfig
     public string Model { get; set; } = "";
     public string Url { get; set; } = "";
     public string ApiKey { get; set; } = "";
-    public int MaxWordCount { get; set; } = 2500;
     public int ParallelCount { get; set; } = 1;
     public int MaxRetry { get; set; } = 10;
-    public int MaxContext { get; set; } = 1024;
+    public int MaxContext { get; set; } = 4096;
     public string ModelParams { get; set; } = "";
     public bool CustomPrompt { get; set; } = false;
     public bool HalfWidth { get; set; } = true;
@@ -43,10 +42,9 @@ internal class AutoLLMConfig
         config.Model = context.GetOrCreateSetting("AutoLLM", "Model", "");
         config.Url = context.GetOrCreateSetting("AutoLLM", "URL", "");
         config.ApiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
-        config.MaxWordCount = context.GetOrCreateSetting("AutoLLM", "MaxWordCount", 2500);
         config.ParallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
-        config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 1024);
+        config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
         config.ModelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
         config.CustomPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
         config.HalfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);

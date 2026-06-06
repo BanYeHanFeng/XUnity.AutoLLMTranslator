@@ -43,6 +43,7 @@ internal class TranslationOrchestrator
             Enabled = config.ParallelCount <= 1,
             MaxContext = config.MaxContext
         };
+        _history.InitSystemPrompt(config.CachedSystemPrompt);
     }
 
     // ---- 公开方法 ----
@@ -92,14 +93,77 @@ internal class TranslationOrchestrator
     {
         while (_processingCount < _config.ParallelCount)
         {
-            var batch = _taskQueue.DequeueBatch(_config.MaxWordCount);
-            if (batch.Count == 0)
+            // 1. 取出所有兼容任务（无字符上限）
+            var pending = _taskQueue.DequeueAll();
+            if (pending.Count == 0)
                 break;
 
-            // 标记为 Processing
+            // 2. 历史超限检查（token 精准判断）
+            _history.CheckAndClearIfOverLimit();
+
+            // 3. Token 感知任务选择
+            var batch = new List<TranslationTask>();
+            var overflow = new List<TranslationTask>();
+            int estimatedTotal = _history.TotalContextTokens;
+
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var task = pending[i];
+                int taskEstimate = _history.EstimateTokens(task.UntranslatedText);
+                int newTotal = estimatedTotal + taskEstimate;
+
+                if (newTotal > _config.MaxContext)
+                {
+                    if (batch.Count == 0)
+                    {
+                        // 极端：第一条就超限 → 丢弃
+                        task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
+                        _taskQueue.MarkCompleted();
+                        _history.IncrementDiscardCount();
+                        Logger.Warn("单条超MaxContext(" + _config.MaxContext + "), 丢弃(#" +
+                            _history.DiscardCount + ") | 估算" + taskEstimate +
+                            " tokens, 文本: " + Truncate(task.UntranslatedText, 80));
+                        // 继续检查下一条（可能下一条更短，能容纳）
+                        estimatedTotal = _history.TotalContextTokens; // 重置（丢弃后上下文未变）
+                        continue;
+                    }
+                    else
+                    {
+                        // 正常截断："下一句"逻辑——本条及后续全回 overflow
+                        overflow.Add(task);
+                        for (int j = i + 1; j < pending.Count; j++)
+                            overflow.Add(pending[j]);
+                        break;
+                    }
+                }
+
+                batch.Add(task);
+                estimatedTotal = newTotal;
+            }
+
+            if (batch.Count == 0)
+            {
+                // 全部被丢弃 → 继续循环尝试下一批兼容任务
+                continue;
+            }
+
+            // 4. 溢出任务归位（插入队首，优先于新到达）
+            if (overflow.Count > 0)
+            {
+                _taskQueue.ReEnqueueFront(overflow);
+                int overflowTotal = estimatedTotal + _history.EstimateTokens(overflow[0].UntranslatedText);
+                Logger.Debug("批次截断: " + overflow.Count + " 条回队首, " +
+                    "估算超限 " + overflowTotal + " > " + _config.MaxContext);
+            }
+
+            // 5. 标记并提交
             foreach (var task in batch)
                 task.State = TaskState.Processing;
             _processingCount++;
+
+            Logger.Info("批次选择: 选取" + batch.Count + "条, 溢出" + overflow.Count
+                + "条, 估算token=" + estimatedTotal + "/" + _config.MaxContext
+                + " (base=" + _history.TotalContextTokens + ")");
 
             var capturedBatch = batch;
             ThreadPool.QueueUserWorkItem(_ => ProcessBatch(capturedBatch));
@@ -122,9 +186,6 @@ internal class TranslationOrchestrator
 
             // 构建用户输入 JSON
             string inputJson = BuildInputJson(texts);
-
-            // 检查对话历史
-            _history.CheckAndClearIfOverLimit(_config.CachedSystemPrompt, inputJson);
 
             // 构建消息
             var messages = _history.BuildMessages(_config.CachedSystemPrompt, inputJson);
@@ -194,7 +255,12 @@ internal class TranslationOrchestrator
 
             if (completed == batch.Count)
             {
-                _history.AppendExchange(inputJson, result.FullResponse);
+                // 1. 先记录 API 精确 token（如果可用）
+                _history.RecordApiUsage(
+                    result.Usage?.PromptTokens ?? 0,
+                    result.Usage?.CompletionTokens ?? 0);
+                // 2. 再记录对话交换（精确模式下只追加消息，回退模式下累加估算）
+                _history.RecordExchange(inputJson, result.FullResponse);
             }
             else if (completed < batch.Count)
             {
@@ -293,6 +359,14 @@ internal class TranslationOrchestrator
     }
 
     // ---- 辅助 ----
+
+    /// <summary>截断文本用于日志输出，避免打印超长内容。</summary>
+    private static string Truncate(string text, int maxLen)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        if (text.Length <= maxLen) return text;
+        return text.Substring(0, maxLen) + "...";
+    }
 
     /// <summary>
     /// 构建 {"1":"原文1","2":"原文2",...} 格式的用户输入 JSON。

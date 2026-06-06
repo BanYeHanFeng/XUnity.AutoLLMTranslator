@@ -38,9 +38,8 @@ APIKey=api-key
 | Model | Model name | (none) | Model must support JSON output |
 | URL | API endpoint | (none) | |
 | APIKey | API key | (none) | |
-| MaxWordCount | Max characters per batch | `2500` | New batch starts after exceeding this limit |
 | ParallelCount | Concurrent requests | `1` | >1 disables conversation history; batches are queued and merged when fully occupied |
-| MaxContext | Max context (tokens) | `1024` | Clears conversation history when exceeded; recommended ≤15000 |
+| MaxContext | Context & batch token limit | `4096` | Controls both conversation history and single batch size; short texts auto-merge; overflow cut to next batch; single text exceeding limit is discarded and logged; recommended 4096~32768 |
 | MaxRetry | Max retry attempts | `10` | |
 | ModelParams | Extra model parameters (JSON) | (none) | e.g. `{"temperature":0.3}` |
 | CustomPrompt | Custom system prompt | `False` | When enabled, config file is at `BepInEx/config/AutoLLM_CustomPrompt.txt` |

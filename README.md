@@ -38,9 +38,8 @@ APIKey=API密钥
 | Model | 模型名称 | （无） | 模型需支持 JSON 输出，不支持的效果差 |
 | URL | API 地址 | （无） | |
 | APIKey | API 密钥 | （无） | |
-| MaxWordCount | 最大字符数 | `2500` | 触发后，下一句使用新批次 |
-| ParallelCount | 并发数 | `1` | >1禁用对话历史，并发占满时，合并排队翻译，批次字符数超过`MaxWordCount`后，下一句使用新批次 |
-| MaxContext | 最大上下文（token） | `1024` | 触发后清空对话历史，推荐不超过 15000 |
+| ParallelCount | 并发数 | `1` | >1禁用对话历史，并发占满时合并排队翻译 |
+| MaxContext | 上下文和批次 token 上限 | `4096` | 同时控制对话历史和单批次大小；短文本自动排队合并；超限截断到下一批；单条超限则丢弃并记日志；推荐 4096~32768 |
 | MaxRetry | 重试次数 | `10` | |
 | ModelParams | 模型额外参数（JSON） | （无） | 如： `{"temperature":0.3}` |
 | CustomPrompt | 自定义系统提示词 | `False` | 开启后，配置文件在`BepInEx/config/AutoLLM_CustomPrompt.txt` |

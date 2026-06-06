@@ -37,7 +37,7 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
         _initialized = true;
 
         Logger.Info("已启动 | Model=" + config.Model + " URL=" + config.Url + " " +
-            "MaxWordCount=" + config.MaxWordCount + " ParallelCount=" + config.ParallelCount);
+            "MaxContext=" + config.MaxContext + " ParallelCount=" + config.ParallelCount);
     }
 
     public IEnumerator Translate(ITranslationContext context)
