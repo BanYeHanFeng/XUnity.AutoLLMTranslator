@@ -128,4 +128,17 @@ internal class ConversationHistory
             _discardCount++;
         }
     }
+
+    /// <summary>强制清空历史（上下文接近上限但未触发自动清空时调用）。</summary>
+    public void ClearHistory()
+    {
+        lock (_lock)
+        {
+            int oldTokens = _totalContextTokens;
+            _history.Clear();
+            _totalContextTokens = _systemPromptTokens;
+            _clearCount++;
+            Logger.Info("历史清空: token=" + oldTokens + " (已接近MaxContext " + MaxContext + "), 清空次数=" + _clearCount);
+        }
+    }
 }

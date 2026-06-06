@@ -116,16 +116,28 @@ internal class TranslationOrchestrator
                 {
                     if (batch.Count == 0)
                     {
-                        // 极端：第一条就超限 → 丢弃
-                        task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
-                        _taskQueue.MarkCompleted();
-                        _history.IncrementDiscardCount();
-                        Logger.Warn("单条超MaxContext(" + _config.MaxContext + "), 丢弃(#" +
-                            _history.DiscardCount + ") | 估算" + taskEstimate +
-                            " tokens, 文本: " + Truncate(task.UntranslatedText, 80));
-                        // 继续检查下一条（可能下一条更短，能容纳）
-                        estimatedTotal = _history.TotalContextTokens; // 重置（丢弃后上下文未变）
-                        continue;
+                        if (taskEstimate > _config.MaxContext)
+                        {
+                            // 文本自身确实超限 → 丢弃
+                            task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
+                            _taskQueue.MarkCompleted();
+                            _history.IncrementDiscardCount();
+                            Logger.Warn("单条超MaxContext(" + _config.MaxContext + "), 丢弃(#" +
+                                _history.DiscardCount + ") | 估算" + taskEstimate +
+                                " tokens, 文本: " + Truncate(task.UntranslatedText, 80));
+                            estimatedTotal = _history.TotalContextTokens; // 重置
+                            continue;
+                        }
+                        else
+                        {
+                            // 历史太满导致装不下 → 清空历史后重试本条
+                            Logger.Info("上下文接近上限(" + estimatedTotal + "/" + _config.MaxContext + "), " +
+                                "清空历史以容纳新任务 | 文本估算" + taskEstimate + " tokens");
+                            _history.ClearHistory();
+                            estimatedTotal = _history.TotalContextTokens;
+                            newTotal = estimatedTotal + taskEstimate;
+                            // fall through to batch.Add below
+                        }
                     }
                     else
                     {
