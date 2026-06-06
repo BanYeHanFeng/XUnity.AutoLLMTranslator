@@ -77,7 +77,7 @@ internal class ConversationHistory
                 Logger.Info("历史清空: token=" + oldTokens + " > MaxContext(" + MaxContext + "), 清空次数=" + _clearCount);
             }
             if (Logger.IsDebugEnabled)
-                Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮");
+                Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
         }
     }
 
