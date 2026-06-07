@@ -15,13 +15,18 @@ internal static class PromptManager
         if (!config.CustomPrompt)
         {
             basePrompt = Prompt.Default;
+            Logger.Info("使用默认系统提示词 (" + basePrompt.Length + " 字符)");
         }
         else
         {
             var path = Path.Combine(Path.Combine(config.BepInExRoot, "config"), "AutoLLM_CustomPrompt.txt");
             if (File.Exists(path))
             {
-                try { basePrompt = File.ReadAllText(path, Encoding.UTF8); }
+                try
+                {
+                    basePrompt = File.ReadAllText(path, Encoding.UTF8);
+                    Logger.Info("已加载自定义提示词: " + path + " (" + basePrompt.Length + " 字符)");
+                }
                 catch (Exception ex)
                 {
                     Logger.Error("读取自定义提示词失败: " + ex);
