@@ -336,7 +336,7 @@ internal class TranslationOrchestrator
         }
         finally
         {
-            _processingCount--;
+            Interlocked.Decrement(ref _processingCount);
 
             if (isRateLimit)
             {
