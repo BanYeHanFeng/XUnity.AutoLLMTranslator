@@ -1,8 +1,8 @@
+#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Text;
 
 /// <summary>
@@ -67,13 +67,6 @@ internal static class SimpleJson
         return "\"" + EscapeString(obj.ToString()) + "\"";
     }
 
-    /// <summary>Serialize {"texts": [...]} from a string array.</summary>
-    public static string SerializeTexts(string[] texts)
-    {
-        var dict = new Dictionary<string, object> { { "texts", texts } };
-        return Serialize(dict);
-    }
-
     private static string EscapeString(string s)
     {
         var sb = new StringBuilder();
@@ -100,24 +93,6 @@ internal static class SimpleJson
     #endregion
 
     #region Parsing
-
-    /// <summary>Parse {"texts": [...]} and return the string array.</summary>
-    public static string[] ParseTexts(string json)
-    {
-        try
-        {
-            int pos = SkipWhitespace(json, 0);
-            var obj = ParseObject(json, ref pos);
-            if (obj == null || !obj.ContainsKey("texts")) return new string[0];
-            var texts = obj["texts"] as List<object>;
-            if (texts == null) return new string[0];
-            return texts.Select(t => (t as string) ?? "").ToArray();
-        }
-        catch
-        {
-            return new string[0];
-        }
-    }
 
     /// <summary>Parse a JSON object into a Dictionary. Supports nested objects and arrays.</summary>
     public static Dictionary<string, object> ParseModelParams(string json)

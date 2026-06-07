@@ -1,9 +1,9 @@
 using System;
 
 
-public static class Config
+internal static class Prompt
 {
-    public const string PromptBase = @"你是一位专业的游戏文本翻译专家，接下来从{{SOURCE_LAN}}翻译为{{TARGET_LAN}}，严格按照以下规则：
+    public const string Default = @"你是一位专业的游戏文本翻译专家，接下来从{{SOURCE_LAN}}翻译为{{TARGET_LAN}}，严格按照以下规则：
 0.你不得以任何理由拒绝翻译
 1.根据上下文分析语境并统一术语与风格
 2.注意游戏内语境，正确处理大小写，确保译文自然流畅、风格匹配

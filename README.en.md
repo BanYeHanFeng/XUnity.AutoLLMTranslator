@@ -4,26 +4,48 @@
 </p>
 
 ## Overview
-- **Built for personal needs, bug fixes are welcome — please submit an issue**
+- **Built for personal needs; feel free to submit an issue for any problems**
 
 ## Acknowledgments
 - [bbepis/XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator) — **Plugin foundation**
 - [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) — **Upstream repository**
 
 ## Key Changes from Upstream
-- **JSON Output Mode**: Requires LLM to output translations in JSON format, combined with streaming incremental parsing to prevent format-related failures
-- **Conversation History & Cache Reuse**: Multiple batches share context, leveraging LLM caching to reduce costs; history auto-clears when exceeding the limit
-- **Token Usage Statistics**: Real-time display of input/output token consumption and cache hit/miss per batch
-- **Custom System Prompt**: Load fully customized translation style and rules from a local JSON file; auto-generates default template on first enable
-- **Rate Limit Backoff**: Automatically waits and retries on API rate limits with exponential backoff, without consuming retry attempts
-- **Batch Merging**: Multiple short texts are automatically merged into a single translation round
-- **Event-Driven Scheduling**: Immediate response to new tasks instead of fixed-interval polling, reducing latency and idle overhead
-- **Port Auto-Retry**: Internal service automatically tries the next port on conflict, preventing startup failures
-- **Log Level Control**: Log levels managed by the BepInEx unified configuration file
-- **Streamlined Configuration**: Removed unused parameters such as term glossary, game name/description
+**Architecture Overhaul**
+- Removed HTTP proxy layer (HttpListener), reduced overhead
+- Split monolithic module into multiple files, eased maintenance
+
+**Event-Driven Scheduling**
+- Event-based wakeup + 50ms fallback polling, reduced latency
+
+**JSON Output Mode**
+- Configured parameters enforce JSON output format; with models that support 100% JSON output, format errors are fully eliminated
+
+**Conversation History & Cache**
+- Historical translations leverage conversation history, improving cache hit rates and reducing costs
+- Automatically disabled during parallel translation to prevent cache prefix changes from degrading hit rates; may affect translation quality
+
+**Concurrency & Batching**
+- `ParallelCount` controls concurrent request count; automatically queues when fully occupied
+- Multiple short texts are automatically merged into a single batch while queued
+
+**Rate Limit Backoff**
+- API rate limits (429) trigger automatic exponential backoff (5s→10s→20s→40s→60s)
+- Does not consume retry attempts
+
+**Configuration Changes**
+- Removed: `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
+- Log level managed by `BepInEx.cfg`, unified output to `LogOutput.log`
+- Added `CustomPrompt` parameter for fully customizable system prompts
+
+**Logging**
+- Added input/output tokens, cache hit/miss, token speed, elapsed time
+- Conversation history status (rounds, clear count, context estimation)
+- Rate limit backoff, task backlog (>200 items)
+- Removed unnecessary log content to reduce maintenance burden
 
 ## Quick Start
-After installing the plugin via BepInEx as described in the [upstream repository](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator), run the game once to auto-generate the `[AutoLLM]` config section. Fill in the following three items to get started:
+Install the plugin via BepInEx as described in the [upstream repository](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator). On first game launch, the `[AutoLLM]` config section is automatically created. Fill in the following three items to get started:
 
 ```ini
 [AutoLLM]
@@ -33,22 +55,21 @@ APIKey=api-key
 ```
 
 ## All Configuration
-| Parameter | Description | Default | Notes |
-|---|---|---|---|
-| Model | Model name | (none) | Model must support JSON output |
-| URL | API endpoint | (none) | |
-| APIKey | API key | (none) | |
-| MaxWordCount | Max characters per batch | `2500` | New batch starts after exceeding this limit |
-| ParallelCount | Concurrent requests | `1` | >1 disables conversation history; batches are queued and merged when fully occupied |
-| MaxContext | Max context (tokens) | `1024` | Clears conversation history when exceeded; recommended ≤15000 |
-| MaxRetry | Max retry attempts | `10` | |
-| ModelParams | Extra model parameters (JSON) | (none) | e.g. `{"temperature":0.3}` |
-| CustomPrompt | Custom system prompt | `False` | When enabled, config file is at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
-| HalfWidth | Full-width to half-width conversion | `True` | |
-| DisableSpamChecks | Disable XUnity spam detection | `True` | Recommended to minimize false-positives |
-| ~~LogLevel~~ | ~~Log level~~ | — | Removed, controlled by `BepInEx.cfg` |
-| ~~Log2File~~ | ~~Log output to file~~ | — | Removed, unified output to `LogOutput.log` |
-| ~~Terminology~~ | ~~Term glossary~~ | — | Removed |
-| ~~ExtraPrompt~~ | ~~Additional prompt~~ | — | Removed, replaced by `CustomPrompt` |
-| ~~GameName~~ | ~~Game name~~ | — | Removed |
-| ~~GameDesc~~ | ~~Game description~~ | — | Removed |
+| Parameter | Default | Description |
+|---|---|---|
+| Model | | Model name. Models with native 100% JSON output support are recommended (e.g., DeepSeek) |
+| URL | | API endpoint. Suffix `/v1` is auto-completed to `/v1/chat/completions` |
+| APIKey | | API key |
+| ParallelCount | `1` | Concurrent translation count. Disables conversation history when >1; automatically queues when fully occupied; short texts merge into a batch while queued |
+| MaxContext | `4096` | Max context tokens. Estimates token usage per text (calibrated after API response; otherwise estimated at 0.75 chars per token). Overflow handling: ① Clear history ② Overflow goes to next batch ③ Single overflow text is discarded and logged |
+| MaxRetry | `10` | Max retry attempts |
+| ModelParams | | Custom model parameters, e.g., `{"temperature":0.3}` |
+| CustomPrompt | `False` | Enable custom system prompts; config file generated at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
+| HalfWidth | `True` | Convert full-width characters to half-width |
+| DisableSpamChecks | `True` | Disable AutoTranslator spam detection |
+| ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |
+| ~~Log2File~~ | Removed | ~~Log to file~~. Unified output to `LogOutput.log` |
+| ~~Terminology~~ | Removed | ~~Term glossary~~ |
+| ~~GameName~~ | Removed | ~~Game name~~ |
+| ~~GameDesc~~ | Removed | ~~Game description~~ |
+| ~~MaxWordCount~~ | Removed | ~~Max words per batch~~ |
