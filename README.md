@@ -11,47 +11,38 @@
 - [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) **上游仓库**
 
 ## 相对于上游的主要改动
-
-### 翻译
 **架构重构**
-- 移除 HTTP 代理层 (HttpListener) ，直接实现 `ITranslateEndpoint`，消除中间人开销；663 行单体拆分为 15 个职责单一的文件，仅保留一个接口
+- 移除 HTTP 代理层 (HttpListener) ，减少开销
+- 单模块拆分多个文件，减少维护压力
 
 **事件驱动调度**
-- `AutoResetEvent` 唤醒 + 50ms 保底轮询，新任务到达即时响应，降低延迟和空转消耗
+- 事件唤醒 + 50ms 保底轮询，降低延迟
 
-**JSON Output 模式**
-- 设置 `response_format: json_object` + 默认提示词 JSON 示例，提升模型以 JSON 格式输出概率 (模型原生支持 100% JSON 输出最佳，如DeepSeek) 
-
-**自定义提示词**
-- 新增 `CustomPrompt` 参数，开启后从 `AutoLLM_CustomPrompt.txt` 文件，读取自定义提示词
+**JSON 输出模式**
+- 设置 JSON 输出模式所需要的参数，模型支持100% JSON输出下，彻底解决模型有概率输出格式，错误的问题
 
 **对话历史与缓存**
-- 批次间共享上下文，利用 KV 缓存降低历史翻译费用
-- 多并发时自动禁用对话历史
+- 历史翻译使用对话历史，提升缓存命中率，降低历史翻译费用
+- 多并行翻译时自动禁用对话历史，避免缓存前缀被修改导致缓存命中率大幅下降，可能会降低翻译质量
 
-**并发与合并**
-- `ParallelCount` 控制并发请求数，并发占满时自动排队等待
-- 排队等待期间多条短文本自动合并为一批翻译
-- 重试任务允许合批
+**并行与合并**
+- `ParallelCount` 控制翻译请求数，并行占满时自动排队等待
+- 排队期间，多条短文本自动合并成一个批次
 
 **限速退避**
 - API 限速 (429) 自动指数退避 (5s→10s→20s→40s→60s)
 - 不消耗重试次数
----
-### 配置与参数
-**已移除**：`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
 
 **配置变更**
+- 已移除：`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
 - 日志等级由 `BepInEx.cfg` 统一管理，统一输出到 `LogOutput.log`
-- Model/URL 留空时禁用翻译，APIKey 留空时跳过 Authorization 头
----
-### 日志
-- 无冗余前缀：每条日志仅含框架统一前缀 `[INFO : XUnity.Common]`，无 `[ALLM_X]` 和重复时间戳
-- Info 级安静：成功批次 Info 0 条，仅在异常/重试/限速时输出
-- Debug 级详细：成功批次输出「批次开始」和「批次完成」两条 Debug，含字符数、上下文占用、排队耗时、token 消耗、缓存命中、速率统计
-- 中文表达统一：全中文描述（字符、毫秒、tokens/s），无中英混杂
-- 异常堆栈完整：`Error(msg, ex)` 重载保留完整异常堆栈，替代手动拼接 `.ToString()`
-- 错误体截断：服务器错误响应体超 200 字符时自动截断，防止刷屏
+- 新增 `CustomPrompt` 参数，完全自定义系统提示词
+
+**日志**
+- 增加输入/输出 token，缓存命中/未命中，Token 速度，耗时
+- 对话历史状态 (轮数、清空次数、上下文估算) 
+- 限速退避、任务积压 (>200 条) 
+- 日志剔除不必要的内容，减少维护压力
 
 ## 快速开始
 参照[上游仓库](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 使用BepinEx方式安装插件后，首次运行游戏会自动创建 `[AutoLLM]` 配置段，按需填写以下三项即可使用：
@@ -59,17 +50,17 @@
 ```ini
 [AutoLLM]
 Model=模型名字
-URL=API地址
-APIKey=API密钥
+URL=接口地址
+APIKey=接口密钥
 ```
 
 ## 全部配置
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | Model | | 模型名称。模型原生支持 100% JSON 输出最佳(如DeepSeek) |
-| URL | | API URL。以`/v1`后缀则自动补全至`/v1/chat/completions` |
-| APIKey | | API 密钥。留空时跳过 Authorization 头 |
-| ParallelCount | `1` | 并发数。>1 时禁用对话历史，并发满后进行排队，排队区间短文本会合并成一个批次|
+| URL | | 接口网址。以`/v1`后缀则自动补全至`/v1/chat/completions` |
+| APIKey | | 接口密钥 |
+| ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
 | MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按 0.75 字符~1 token 估算)。超限时分三种情况处理:① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
 | MaxRetry | `10` | 最大重试次数 |
 | ModelParams | | 自定义模型参数，如： `{"temperature":0.3}` |
