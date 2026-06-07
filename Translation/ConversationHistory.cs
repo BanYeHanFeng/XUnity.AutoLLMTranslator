@@ -52,8 +52,7 @@ internal class ConversationHistory
             _systemPromptTokens = prompt.Length * 3 / 4;
             _totalContextTokens = _systemPromptTokens;
         }
-        if (Logger.IsDebugEnabled)
-            Logger.Debug("Token估算: systemPrompt=" + _systemPromptTokens + " tokens (chars=" + prompt.Length + "*0.75)");
+        Logger.Debug("Token 估算: 系统提示词=" + _systemPromptTokens + " tokens (字符=" + prompt.Length + "×0.75)");
     }
 
     /// <summary>估算纯文本的 token 数（0.75 字符/token）。</summary>
@@ -74,10 +73,9 @@ internal class ConversationHistory
                 _history.Clear();
                 _totalContextTokens = _systemPromptTokens;
                 _clearCount++;
-                Logger.Info("历史清空: token=" + oldTokens + " > MaxContext(" + MaxContext + "), 清空次数=" + _clearCount);
+                Logger.Info("历史清空: tokens=" + oldTokens + " 超过最大上下文(" + MaxContext + "), 清空次数=" + _clearCount);
             }
-            if (Logger.IsDebugEnabled)
-                Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
+            Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
         }
     }
 
@@ -90,12 +88,11 @@ internal class ConversationHistory
             if (!_apiReturnsTokens)
             {
                 _apiReturnsTokens = true;
-                Logger.Info("Token追踪: API 返回精确 token 统计，切换为精确模式");
+                Logger.Debug("Token 追踪: 接口返回精确 token 统计，切换为精确模式");
             }
             int newTotal = (int)(promptTokens + completionTokens);
-            if (Logger.IsDebugEnabled)
-                Logger.Debug("Token精确更新: prompt=" + promptTokens + " completion=" + completionTokens
-                    + " total=" + newTotal + " (旧值=" + _totalContextTokens + ")");
+            Logger.Debug("Token 精确更新: 输入=" + promptTokens + " 输出=" + completionTokens
+                + " 合计=" + newTotal + " (旧值=" + _totalContextTokens + ")");
             _totalContextTokens = newTotal;
         }
     }
@@ -113,9 +110,8 @@ internal class ConversationHistory
             {
                 int added = (userInput.Length + assistantOutput.Length) * 3 / 4;
                 _totalContextTokens += added;
-                if (Logger.IsDebugEnabled)
-                    Logger.Debug("Token估算累加: +" + added + " tokens (user=" + userInput.Length
-                        + "chars, assistant=" + assistantOutput.Length + "chars), 累积=" + _totalContextTokens);
+                Logger.Debug("Token 估算累加: +" + added + " tokens (用户=" + userInput.Length
+                    + "字符, 回答=" + assistantOutput.Length + "字符), 累积=" + _totalContextTokens);
             }
         }
     }
@@ -138,7 +134,7 @@ internal class ConversationHistory
             _history.Clear();
             _totalContextTokens = _systemPromptTokens;
             _clearCount++;
-            Logger.Info("历史清空: token=" + oldTokens + " (已接近MaxContext " + MaxContext + "), 清空次数=" + _clearCount);
+            Logger.Info("历史清空: tokens=" + oldTokens + " 已接近上限(" + MaxContext + "), 清空次数=" + _clearCount);
         }
     }
 }

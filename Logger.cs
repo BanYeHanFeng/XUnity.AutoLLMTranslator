@@ -1,40 +1,61 @@
-﻿using System;
+﻿#nullable disable
 using XUnity.Common.Logging;
 
 internal static class Logger
 {
-  static bool _infoEnabled  = true;
-  static bool _warnEnabled  = true;
-  static bool _debugEnabled = false;
-  // Error 始终启用，不需要标志位
+    static bool _infoEnabled  = true;
+    static bool _warnEnabled  = true;
+    static bool _debugEnabled = false;
+    // 错误级别始终启用，不需要标志位
 
-  public static bool IsInfoEnabled  => _infoEnabled;
-  public static bool IsWarnEnabled  => _warnEnabled;
-  public static bool IsDebugEnabled => _debugEnabled;
+    public static bool IsInfoEnabled  => _infoEnabled;
+    public static bool IsWarnEnabled  => _warnEnabled;
+    public static bool IsDebugEnabled => _debugEnabled;
 
-  public static void Init(AutoLLMConfig config)
-  {
-    _debugEnabled = config.DebugEnabled;
-    _infoEnabled = config.InfoEnabled;
-    _warnEnabled = config.WarnEnabled;
-  }
+    public static void Init(AutoLLMConfig config)
+    {
+        _debugEnabled = config.DebugEnabled;
+        _infoEnabled = config.InfoEnabled;
+        _warnEnabled = config.WarnEnabled;
+    }
 
-  static void Log(string message, string levelTag)
-  {
-    var logMessage = $"[ALLM_{levelTag}]: [{DateTime.Now:HH:mm:ss}] {message}";
+    public static void Info(string message)
+    {
+        if (_infoEnabled) XuaLogger.Common.Info(message);
+    }
 
-    if (levelTag == "E")
-      XuaLogger.Common.Error(logMessage);
-    else if (levelTag == "W")
-      XuaLogger.Common.Warn(logMessage);
-    else if (levelTag == "D")
-      XuaLogger.Common.Debug(logMessage);
-    else
-      XuaLogger.Common.Info(logMessage);
-  }
+    public static void Info(string message, System.Exception ex)
+    {
+        if (_infoEnabled) XuaLogger.Common.Info(ex, message);
+    }
 
-  public static void Info(string message)  { if (_infoEnabled)  Log(message, "I"); }
-  public static void Debug(string message) { if (_debugEnabled) Log(message, "D"); }
-  public static void Warn(string message)  { if (_warnEnabled)  Log(message, "W"); }
-  public static void Error(string message) => Log(message, "E");
+    public static void Debug(string message)
+    {
+        if (_debugEnabled) XuaLogger.Common.Debug(message);
+    }
+
+    public static void Debug(string message, System.Exception ex)
+    {
+        if (_debugEnabled) XuaLogger.Common.Debug(ex, message);
+    }
+
+    public static void Warn(string message)
+    {
+        if (_warnEnabled) XuaLogger.Common.Warn(message);
+    }
+
+    public static void Warn(string message, System.Exception ex)
+    {
+        if (_warnEnabled) XuaLogger.Common.Warn(ex, message);
+    }
+
+    public static void Error(string message)
+    {
+        XuaLogger.Common.Error(message);
+    }
+
+    public static void Error(string message, System.Exception ex)
+    {
+        XuaLogger.Common.Error(ex, message);
+    }
 }

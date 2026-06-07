@@ -122,9 +122,9 @@ internal class TranslationOrchestrator
                             task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
                             _taskQueue.MarkCompleted();
                             _history.IncrementDiscardCount();
-                            Logger.Warn("单条超MaxContext(" + _config.MaxContext + "), 丢弃(#" +
-                                _history.DiscardCount + ") | 估算" + taskEstimate +
-                                " tokens, 文本: " + Truncate(task.UntranslatedText, 80));
+                            Logger.Warn("单条文本超出最大上下文(" + _config.MaxContext + "), 丢弃(第" +
+                                _history.DiscardCount + "次) | 估算" + taskEstimate +
+                                " tokens | 文本: " + Truncate(task.UntranslatedText, 80));
                             estimatedTotal = _history.TotalContextTokens; // 重置
                             continue;
                         }
@@ -164,7 +164,7 @@ internal class TranslationOrchestrator
             {
                 _taskQueue.ReEnqueueFront(overflow);
                 int overflowTotal = estimatedTotal + _history.EstimateTokens(overflow[0].UntranslatedText);
-                Logger.Debug("批次截断: " + overflow.Count + " 条回队首, " +
+                Logger.Debug("批次截断: " + overflow.Count + " 条返回队首 | " +
                     "估算超限 " + overflowTotal + " > " + _config.MaxContext);
             }
 
@@ -172,10 +172,6 @@ internal class TranslationOrchestrator
             foreach (var task in batch)
                 task.State = TaskState.Processing;
             _processingCount++;
-
-            Logger.Info("批次选择: 选取" + batch.Count + "条, 溢出" + overflow.Count
-                + "条, 估算token=" + estimatedTotal + "/" + _config.MaxContext
-                + " (base=" + _history.TotalContextTokens + ")");
 
             var capturedBatch = batch;
             ThreadPool.QueueUserWorkItem(_ => ProcessBatch(capturedBatch));
@@ -202,13 +198,19 @@ internal class TranslationOrchestrator
             // 构建消息
             var messages = _history.BuildMessages(_config.CachedSystemPrompt, inputJson);
 
-            // 日志
-            int totalChars = 0;
-            foreach (var t in texts) totalChars += t.Length;
-            long waitMs = Environment.TickCount - batch[0].CreatedTick;
-            Logger.Info("批次 " + batchId + ": 发送 " + texts.Count + " 条, " + totalChars + " 字符, " +
-                "排队" + waitMs + "ms, 历史" + _history.TurnCount + "轮, " +
-                "并行" + _processingCount + "/" + _config.ParallelCount);
+            // ---- 批次开始（Debug） ----
+            if (Logger.IsDebugEnabled)
+            {
+                int totalChars = 0;
+                foreach (var t in texts) totalChars += t.Length;
+                long waitMs = Environment.TickCount - batch[0].CreatedTick;
+                int ctxTokens = _history.TotalContextTokens;
+                Logger.Debug(
+                    "批次 " + batchId + ": 选取" + batch.Count + "条(" + totalChars + "字符) | " +
+                    "上下文" + ctxTokens + "/" + _config.MaxContext + " | " +
+                    "排队" + waitMs + "毫秒 历史" + _history.TurnCount + "轮 并行" +
+                    _processingCount + "/" + _config.ParallelCount);
+            }
 
             // 同步调用 LLM（阻塞 ThreadPool 线程，net35 下无可避免）
             LlmResult result = _llmClient.Translate(
@@ -217,25 +219,42 @@ internal class TranslationOrchestrator
 
             _rateLimitGuard.Reset();
 
-            // Token 统计
+            // Token 统计（累积）
             _totalInputTokens += result.Usage?.PromptTokens ?? 0;
             _totalOutputTokens += result.Usage?.CompletionTokens ?? 0;
             if (LlmClient.CacheStatsSupported)
             {
                 _totalCacheHitTokens += result.Usage?.CacheHitTokens ?? 0;
                 _totalCacheMissTokens += result.Usage?.CacheMissTokens ?? 0;
-                Logger.Info("LLM usage: 入" + result.Usage.PromptTokens + " 出" + result.Usage.CompletionTokens + " " +
-                    "命中" + result.Usage.CacheHitTokens + " 未中" + result.Usage.CacheMissTokens + " | " +
-                    "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens + " 命中" + _totalCacheHitTokens + " 未中" + _totalCacheMissTokens);
-            }
-            else
-            {
-                Logger.Info("LLM usage: 入" + (result.Usage?.PromptTokens ?? 0) + " 出" + (result.Usage?.CompletionTokens ?? 0) + " | " +
-                    "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens);
             }
 
-            if (result.ElapsedMs > 0 && (result.Usage?.CompletionTokens ?? 0) > 0)
-                Logger.Info("LLM 速度: " + (result.Usage.CompletionTokens * 1000 / result.ElapsedMs) + " tok/s, 耗时" + result.ElapsedMs + "ms");
+            // ---- 批次完成（Debug） ----
+            if (Logger.IsDebugEnabled)
+            {
+                long inputTok = result.Usage?.PromptTokens ?? 0;
+                long outputTok = result.Usage?.CompletionTokens ?? 0;
+                if (LlmClient.CacheStatsSupported)
+                {
+                    long hit = result.Usage?.CacheHitTokens ?? 0;
+                    long miss = result.Usage?.CacheMissTokens ?? 0;
+                    Logger.Debug(
+                        "批次 " + batchId + ": 完成 耗时" + result.ElapsedMs + "毫秒 | " +
+                        "输入" + inputTok + "tokens 输出" + outputTok + "tokens " +
+                        "[缓存命中" + hit + " 未中" + miss + "] | " +
+                        "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens +
+                        " 命中" + _totalCacheHitTokens + " 未中" + _totalCacheMissTokens);
+                }
+                else
+                {
+                    long speed = outputTok > 0 && result.ElapsedMs > 0
+                        ? outputTok * 1000 / result.ElapsedMs : 0;
+                    Logger.Debug(
+                        "批次 " + batchId + ": 完成 耗时" + result.ElapsedMs + "毫秒 | " +
+                        "输入" + inputTok + "tokens 输出" + outputTok + "tokens " +
+                        speed + "tokens/s | " +
+                        "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens);
+                }
+            }
 
             if (string.IsNullOrEmpty(result.FullResponse))
                 throw new Exception("翻译结果为空");
@@ -276,7 +295,7 @@ internal class TranslationOrchestrator
             }
             else if (completed < batch.Count)
             {
-                Logger.Warn("批次 " + batchId + ": 解析不完整, 期望" + batch.Count + "条 实际" + completed + "条");
+                Logger.Warn("批次 " + batchId + ": 解析不完整 | 期望" + batch.Count + "条 实际" + completed + "条");
             }
         }
         catch (WebException we)
@@ -292,7 +311,7 @@ internal class TranslationOrchestrator
                     using (var reader = new StreamReader(errorStream))
                     {
                         string errorText = reader.ReadToEnd();
-                        Logger.Error("服务器错误响应: " + errorText);
+                        Logger.Error("服务器错误响应: " + Truncate(errorText, 200));
                     }
                 }
                 catch { }
@@ -302,17 +321,17 @@ internal class TranslationOrchestrator
             {
                 isRateLimit = true;
                 _rateLimitGuard.OnRateLimited();
-                Logger.Warn("限速退避: " + (_rateLimitGuard.CurrentDelayMs / 1000) + "s");
+                Logger.Info("限速退避: " + (_rateLimitGuard.CurrentDelayMs / 1000) + " 秒");
             }
             else
             {
                 _rateLimitGuard.Reset();
             }
-            Logger.Error("翻译失败 [" + statusCode + "]: " + we.Message);
+            Logger.Error("翻译失败 [HTTP " + statusCode + "]", we);
         }
         catch (Exception ex)
         {
-            Logger.Error("翻译失败: " + ex.Message);
+            Logger.Error("翻译失败", ex);
             _rateLimitGuard.Reset();
         }
         finally
@@ -332,7 +351,7 @@ internal class TranslationOrchestrator
                     }
                 }
                 if (any)
-                    Logger.Info("批次 " + batchId + ": 限速重试 " + batch.Count + " 条（不消耗重试次数）");
+                    Logger.Warn("批次 " + batchId + ": 限速重试 " + batch.Count + " 条（不消耗重试次数）");
             }
             else
             {
@@ -351,14 +370,14 @@ internal class TranslationOrchestrator
                     }
                     else
                     {
-                        Logger.Error("重试耗尽(" + _config.MaxRetry + "次), 放弃: " + task.UntranslatedText);
+                        Logger.Error("重试耗尽(共" + _config.MaxRetry + "次) | 放弃: " + Truncate(task.UntranslatedText, 80));
                         task.MarkFailed("翻译失败，已重试" + _config.MaxRetry + "次");
                         _taskQueue.MarkCompleted();
                         failed++;
                     }
                 }
                 if (retried > 0 || failed > 0)
-                    Logger.Info("批次 " + batchId + ": " + retried + " 条重试, " + failed + " 条放弃");
+                    Logger.Info("批次 " + batchId + ": " + retried + " 条重试 " + failed + " 条放弃");
             }
 
             // 标记成功完成的任务

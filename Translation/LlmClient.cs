@@ -69,7 +69,7 @@ internal class LlmClient : ILlmClient
             }
 
             if (!done && fullResponse.Length > 0)
-                Logger.Warn("SSE 流未收到 [DONE] (chunks=" + chunks + ")");
+                Logger.Debug("流式响应未收到[DONE]标记 (数据块=" + chunks + ")");
 
             // 4. 构建结果
             var result = new LlmResult
@@ -118,7 +118,7 @@ internal class LlmClient : ILlmClient
                 _cacheStatsSupported = usage.ContainsKey("prompt_cache_hit_tokens")
                     || usage.ContainsKey("prompt_cache_miss_tokens");
                 if (!_cacheStatsSupported)
-                    Logger.Info("API 流式响应不返回缓存命中/未中统计");
+                    Logger.Info("接口流式响应不含缓存命中/未中统计");
             }
 
             if (_cacheStatsSupported)
@@ -131,7 +131,7 @@ internal class LlmClient : ILlmClient
         }
         else if (!_warnedUsageMissing)
         {
-            Logger.Debug("usage 字段未返回，API 可能不支持 token 统计");
+            Logger.Info("用量字段缺失，接口可能不支持 token 统计");
             _warnedUsageMissing = true;
         }
     }

@@ -25,11 +25,11 @@ internal static class PromptManager
                 try
                 {
                     basePrompt = File.ReadAllText(path, Encoding.UTF8);
-                    Logger.Info("已加载自定义提示词: " + path + " (" + basePrompt.Length + " 字符)");
+                    Logger.Info("已加载自定义提示词: " + path + " (长度=" + basePrompt.Length + " 字符)");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error("读取自定义提示词失败: " + ex);
+                    Logger.Error("读取自定义提示词失败", ex);
                     basePrompt = Prompt.Default;
                 }
             }
@@ -39,12 +39,12 @@ internal static class PromptManager
                 {
                     Directory.CreateDirectory(Path.Combine(config.BepInExRoot, "config"));
                     File.WriteAllText(path, Prompt.Default, Encoding.UTF8);
-                    Logger.Info("已创建默认自定义提示词: " + path);
+                    Logger.Info("已创建默认自定义提示词模板: " + path);
                     basePrompt = Prompt.Default;
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error("创建自定义提示词失败: " + ex);
+                    Logger.Error("创建自定义提示词模板失败", ex);
                     basePrompt = Prompt.Default;
                 }
             }

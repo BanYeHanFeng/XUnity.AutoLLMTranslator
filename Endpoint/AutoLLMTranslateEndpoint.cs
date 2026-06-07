@@ -36,8 +36,8 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
         _orchestrator.Start();
         _initialized = true;
 
-        Logger.Info("已启动 | Model=" + config.Model + " URL=" + config.Url + " " +
-            "MaxContext=" + config.MaxContext + " ParallelCount=" + config.ParallelCount);
+        Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
+            " 最大上下文=" + config.MaxContext + " 并行=" + config.ParallelCount);
     }
 
     public IEnumerator Translate(ITranslationContext context)
@@ -50,11 +50,11 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
 
         if (string.IsNullOrEmpty(context.UntranslatedText))
         {
-            if (Logger.IsDebugEnabled) Logger.Debug("翻译请求: 空文本，跳过");
+            Logger.Debug("翻译请求: 空文本，跳过");
             yield break;
         }
 
-        if (Logger.IsDebugEnabled) Logger.Debug("翻译请求: " + context.UntranslatedText);
+        Logger.Debug("翻译请求: " + context.UntranslatedText);
 
         var task = new TranslationTask
         {
