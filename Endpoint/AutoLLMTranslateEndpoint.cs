@@ -20,29 +20,36 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
 
     public void Initialize(IInitializationContext context)
     {
-        context.SetTranslationDelay(0.1f);
-
-        var config = AutoLLMConfig.FromInitializationContext(context);
-        if (!config.IsValid)
+        try
         {
-            Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
-            return;
+            context.SetTranslationDelay(0.1f);
+
+            var config = AutoLLMConfig.FromInitializationContext(context);
+            if (!config.IsValid)
+            {
+                Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
+                return;
+            }
+
+            Logger.Init(config);
+            Logger.Info("端点初始化完成");
+
+            _orchestrator = new TranslationOrchestrator(config, new LlmClient());
+            _orchestrator.Start();
+            _initialized = true;
+
+            Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
+                " 最大上下文=" + config.MaxContext + " 并行=" + config.ParallelCount);
         }
-
-        Logger.Init(config);
-        Logger.Info("端点初始化完成");
-
-        _orchestrator = new TranslationOrchestrator(config, new LlmClient());
-        _orchestrator.Start();
-        _initialized = true;
-
-        Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
-            " 最大上下文=" + config.MaxContext + " 并行=" + config.ParallelCount);
+        catch (Exception ex)
+        {
+            Logger.Error("端点初始化异常", ex);
+        }
     }
 
     public IEnumerator Translate(ITranslationContext context)
     {
-        if (!_initialized)
+        if (!_initialized || _orchestrator == null)
         {
             context.Fail("端点未初始化");
             yield break;

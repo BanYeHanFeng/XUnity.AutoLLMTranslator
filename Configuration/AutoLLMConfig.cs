@@ -38,14 +38,14 @@ internal class AutoLLMConfig
     {
         var config = new AutoLLMConfig();
 
-        // 1. 读取所有配置
-        config.Model = context.GetOrCreateSetting("AutoLLM", "Model", "");
-        config.Url = context.GetOrCreateSetting("AutoLLM", "URL", "");
-        config.ApiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "");
+        // 1. 读取所有配置（string 类型加 ?? "" 防御，防止框架返回 null）
+        config.Model = context.GetOrCreateSetting("AutoLLM", "Model", "") ?? "";
+        config.Url = context.GetOrCreateSetting("AutoLLM", "URL", "") ?? "";
+        config.ApiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "") ?? "";
         config.ParallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
         config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
         config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
-        config.ModelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "");
+        config.ModelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "") ?? "";
         config.CustomPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
         config.HalfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         config.DisableSpamChecks = context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true);
@@ -103,6 +103,7 @@ internal class AutoLLMConfig
     /// </summary>
     private static string FindBepInExRoot(string translatorDir)
     {
+        if (string.IsNullOrEmpty(translatorDir)) return null;
         var dir = translatorDir;
         for (int i = 0; i < 10; i++)
         {
