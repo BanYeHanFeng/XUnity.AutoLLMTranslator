@@ -46,12 +46,16 @@
 - Rate limit backoff, task backlog (>200 items)
 - Removed unnecessary log content to reduce maintenance burden
 
-## Quick Start
-[Installation Guide](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/安装教程.en.md)
+## Installation Guide
+<p align="center">
+  <a href="docs/安装教程.en.md">Installation Guide</a>
+</p>
 
 ## FAQ
 - Some fonts display as □□□ (missing characters)
-[Solution Guide](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/更换字体教程.en.md)
+<p align="center">
+  <a href="docs/更换字体教程.en.md">Solution Guide</a>
+</p>
 
 ## All Configuration Options
 | Parameter | Default | Description |
