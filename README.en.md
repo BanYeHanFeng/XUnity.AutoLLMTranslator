@@ -3,73 +3,72 @@
   <a href="README.en.md">English</a>
 </p>
 
-## Overview
-- **Built for personal needs; feel free to submit an issue for any problems**
+## Introduction
+- **My personal requirements have been mostly fulfilled. If you encounter any issues, please submit an issue and I will respond and resolve it.**
 
 ## Acknowledgments
-- [bbepis/XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator) — **Plugin foundation**
-- [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) — **Upstream repository**
+- [bbepis/XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator) **Plugin Foundation**
+- [NothingNullNull/XUnity.AutoLLMTranslator](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) **Upstream Repository**
 
-## Key Changes from Upstream
-**Architecture Overhaul**
-- Removed HTTP proxy layer (HttpListener), reduced overhead
-- Split monolithic module into multiple files, eased maintenance
+## Major Changes Compared to Upstream
+**Architecture Refactoring**
+- Removed HTTP proxy layer, reduced overhead
+- Split single module into multiple files, reduced maintenance burden
 
 **Event-Driven Scheduling**
-- Event-based wakeup + 50ms fallback polling, reduced latency
+- Event-driven wake-up + 50ms fallback polling, reduced latency
 
 **JSON Output Mode**
-- Configured parameters enforce JSON output format; with models that support 100% JSON output, format errors are fully eliminated
+- Configure parameters required for JSON output mode. When the model supports 100% JSON output, it completely resolves the issue of the model occasionally outputting malformed formats that cause parsing failures.
 
 **Conversation History & Cache**
-- Historical translations leverage conversation history, improving cache hit rates and reducing costs
-- Automatically disabled during parallel translation to prevent cache prefix changes from degrading hit rates; may affect translation quality
+- Use conversation history for repeated translations, improving cache hit rates and reducing costs for repeated translations
+- Automatically disable conversation history during parallel translations to prevent cache prefix changes that would significantly degrade cache hit rates (may reduce translation quality)
 
-**Concurrency & Batching**
-- `ParallelCount` controls concurrent request count; automatically queues when fully occupied
-- Multiple short texts are automatically merged into a single batch while queued
+**Parallelism & Merging**
+- `ParallelCount` controls the number of translation requests; automatically queues when parallel slots are full
+- During queuing, multiple short texts are automatically merged into a single batch
 
-**Rate Limit Backoff**
-- API rate limits (429) trigger automatic exponential backoff (5s→10s→20s→40s→60s)
+**Rate Limiting Backoff**
+- API rate limiting (429) automatically triggers exponential backoff (5s → 10s → 20s → 40s → 60s)
 - Does not consume retry attempts
 
 **Configuration Changes**
 - Removed: `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
-- Log level managed by `BepInEx.cfg`, unified output to `LogOutput.log`
-- Added `CustomPrompt` parameter for fully customizable system prompts
+- Log level is now managed by `BepInEx.cfg`, unified output to `LogOutput.log`
+- Added `MaxContext` parameter for custom max context length
+- Added `CustomPrompt` parameter for fully custom system prompts
+- Simplified default prompt (2898 chars → 132 chars)
 
 **Logging**
 - Added input/output tokens, cache hit/miss, token speed, elapsed time
-- Conversation history status (rounds, clear count, context estimation)
+- Conversation history status (rounds, clears, context estimates)
 - Rate limit backoff, task backlog (>200 items)
 - Removed unnecessary log content to reduce maintenance burden
 
 ## Quick Start
-Install the plugin via BepInEx as described in the [upstream repository](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator). On first game launch, the `[AutoLLM]` config section is automatically created. Fill in the following three items to get started:
+[Installation Guide](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/安装教程.en.md)
 
-```ini
-[AutoLLM]
-Model=model-name
-URL=api-url
-APIKey=api-key
-```
+## FAQ
+- Some fonts display as □□□ (missing characters)
+[Solution Guide](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/更换字体教程.en.md)
 
-## All Configuration
+## All Configuration Options
 | Parameter | Default | Description |
 |---|---|---|
 | Model | | Model name. Models with native 100% JSON output support are recommended (e.g., DeepSeek) |
-| URL | | API endpoint. Suffix `/v1` is auto-completed to `/v1/chat/completions` |
+| URL | | API endpoint URL. If the URL ends with `/v1`, it will be auto-completed to `/v1/chat/completions` |
 | APIKey | | API key |
-| ParallelCount | `1` | Concurrent translation count. Disables conversation history when >1; automatically queues when fully occupied; short texts merge into a batch while queued |
-| MaxContext | `4096` | Max context tokens. Estimates token usage per text (calibrated after API response; otherwise estimated at 0.75 chars per token). Overflow handling: ① Clear history ② Overflow goes to next batch ③ Single overflow text is discarded and logged |
-| MaxRetry | `10` | Max retry attempts |
-| ModelParams | | Custom model parameters, e.g., `{"temperature":0.3}` |
-| CustomPrompt | `False` | Enable custom system prompts; config file generated at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
-| HalfWidth | `True` | Convert full-width characters to half-width |
-| DisableSpamChecks | `True` | Disable AutoTranslator spam detection |
-| ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |
-| ~~Log2File~~ | Removed | ~~Log to file~~. Unified output to `LogOutput.log` |
-| ~~Terminology~~ | Removed | ~~Term glossary~~ |
+| ModelParams | | Custom model parameters, e.g.: `{"temperature":0.3}` |
+| ParallelCount | `1` | Number of parallel translations. When >1, conversation history is disabled. When parallel slots are full, tasks are queued and multiple short texts are automatically merged into one batch |
+| MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 chars per token). Three handling modes when exceeded: ① Clear conversation history ② Overflow distributed to next batch ③ Single text still exceeding limit is discarded and logged |
+| MaxRetry | `10` | Maximum retry attempts |
+| CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the configuration file is created at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
+| HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
+| DisableSpamChecks | `True` | Whether to disable AutoTranslator spam checks |
+| ~~LogLevel~~ | Removed | ~~Log level~~. Managed by `BepInEx.cfg` |
+| ~~Log2File~~ | Removed | ~~Log output file~~. Unified output to `LogOutput.log` |
+| ~~Terminology~~ | Removed | ~~Terminology table~~ |
 | ~~GameName~~ | Removed | ~~Game name~~ |
 | ~~GameDesc~~ | Removed | ~~Game description~~ |
-| ~~MaxWordCount~~ | Removed | ~~Max words per batch~~ |
+| ~~MaxWordCount~~ | Removed | ~~Max characters per batch~~ |

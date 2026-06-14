@@ -18,15 +18,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Restore NuGet packages
-        run: dotnet restore XUnity.AutoLLMTranslator.sln
-
       - name: Build
-        shell: pwsh
-        run: |
-          $gameDir = Join-Path $env:RUNNER_TEMP "GameOutput"
-          New-Item -ItemType Directory -Force -Path $gameDir | Out-Null
-          dotnet build XUnity.AutoLLMTranslator.sln -c Release --no-restore "/p:GameDir=$gameDir\"
+        run: dotnet build XUnity.AutoLLMTranslator.csproj -c Release
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
@@ -38,7 +31,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
           gh release view "$version" 2>$null

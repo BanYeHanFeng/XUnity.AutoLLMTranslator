@@ -1,4 +1,5 @@
 ﻿#nullable disable
+using System;
 using XUnity.Common.Logging;
 
 internal static class Logger
@@ -51,11 +52,13 @@ internal static class Logger
 
     public static void Error(string message)
     {
-        XuaLogger.Common.Error(message);
+        try { XuaLogger.Common.Error(message); }
+        catch { Console.Error.WriteLine("[ALLM_Error]: " + message); }
     }
 
     public static void Error(string message, System.Exception ex)
     {
-        XuaLogger.Common.Error(ex, message);
+        try { XuaLogger.Common.Error(ex, message); }
+        catch { Console.Error.WriteLine("[ALLM_Error]: " + message + " | " + ex); }
     }
 }
