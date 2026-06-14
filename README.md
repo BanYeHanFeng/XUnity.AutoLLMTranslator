@@ -12,14 +12,14 @@
 
 ## 相对于上游的主要改动
 **架构重构**
-- 移除 HTTP 代理层 (HttpListener) ，减少开销
+- 移除 HTTP 代理层，减少开销
 - 单模块拆分多个文件，减少维护压力
 
 **事件驱动调度**
 - 事件唤醒 + 50ms 保底轮询，降低延迟
 
 **JSON 输出模式**
-- 设置 JSON 输出模式所需要的参数，模型支持100% JSON输出下，彻底解决模型有概率输出格式，错误的问题
+- 设置 JSON 输出模式所需要的参数，模型支持100% JSON输出下，彻底解决模型有概率输出格式错误，导致解析失败的问题
 
 **对话历史与缓存**
 - 历史翻译使用对话历史，提升缓存命中率，降低历史翻译费用
@@ -36,7 +36,9 @@
 **配置变更**
 - 已移除：`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
 - 日志等级由 `BepInEx.cfg` 统一管理，统一输出到 `LogOutput.log`
+- 新增 `MaxContext` 参数，自定义最大上下文长度
 - 新增 `CustomPrompt` 参数，完全自定义系统提示词
+- 精简默认提示词 (2898 字符数→132 字符数)
 
 **日志**
 - 增加输入/输出 token，缓存命中/未命中，Token 速度，耗时
@@ -45,14 +47,11 @@
 - 日志剔除不必要的内容，减少维护压力
 
 ## 快速开始
-参照[上游仓库](https://github.com/NothingNullNull/XUnity.AutoLLMTranslator) 使用BepinEx方式安装插件后，首次运行游戏会自动创建 `[AutoLLM]` 配置段，按需填写以下三项即可使用：
+[安装教程](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/安装教程.md)
 
-```ini
-[AutoLLM]
-Model=模型名字
-URL=接口地址
-APIKey=接口密钥
-```
+## 常见问题
+- 部分字体出现□□□的情况
+[解决教程](https://github.com/BanYeHanFeng/XUnity.AutoLLMTranslator/docs/更换字体教程.md)
 
 ## 全部配置
 | 参数 | 默认值 | 说明 |
@@ -60,10 +59,10 @@ APIKey=接口密钥
 | Model | | 模型名称。模型原生支持 100% JSON 输出最佳(如DeepSeek) |
 | URL | | 接口网址。以`/v1`后缀则自动补全至`/v1/chat/completions` |
 | APIKey | | 接口密钥 |
-| ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
-| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按 0.75 字符~1 token 估算)。超限时分三种情况处理:① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
-| MaxRetry | `10` | 最大重试次数 |
 | ModelParams | | 自定义模型参数，如： `{"temperature":0.3}` |
+| ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
+| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按0.75 字符~1 token)。超限时分三种情况处理:① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
+| MaxRetry | `10` | 最大重试次数 |
 | CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
 | DisableSpamChecks | `True` | 是否禁用 AutoTranslator 垃圾检查 |
