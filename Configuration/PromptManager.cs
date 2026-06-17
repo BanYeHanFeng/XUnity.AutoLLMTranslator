@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.IO;
 using System.Text;
@@ -27,7 +26,7 @@ internal static class PromptManager
         }
         else
         {
-            var path = Path.Combine(Path.Combine(config.BepInExRoot, "config"), "AutoLLM_CustomPrompt.txt");
+            var path = Path.Combine(Path.Combine(config.BepInExRoot!, "config"), "AutoLLM_CustomPrompt.txt");
             if (File.Exists(path))
             {
                 try
@@ -45,7 +44,7 @@ internal static class PromptManager
             {
                 try
                 {
-                    Directory.CreateDirectory(Path.Combine(config.BepInExRoot, "config"));
+                    Directory.CreateDirectory(Path.Combine(config.BepInExRoot!, "config"));
                     File.WriteAllText(path, Prompt.Default, Encoding.UTF8);
                     Logger.Info("已创建默认自定义提示词模板: " + path);
                     basePrompt = Prompt.Default;
@@ -58,7 +57,7 @@ internal static class PromptManager
             }
         }
         return basePrompt
-            .Replace("{{SOURCE_LAN}}", config.SourceLanguage)
-            .Replace("{{TARGET_LAN}}", config.DestinationLanguage);
+            .Replace("{{SOURCE_LAN}}", config.SourceLanguage ?? "")
+            .Replace("{{TARGET_LAN}}", config.DestinationLanguage ?? "");
     }
 }

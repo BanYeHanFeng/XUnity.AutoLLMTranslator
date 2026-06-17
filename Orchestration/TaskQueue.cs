@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -75,7 +74,7 @@ internal class TaskQueue
     /// 用于 overflow 任务归位——它们在原始队列中位于已取走批次的后面，
     /// 应优先于新到达的任务被处理。
     /// </summary>
-    public void ReEnqueueFront(List<TranslationTask> tasks)
+    public void ReEnqueueFront(List<TranslationTask>? tasks)
     {
         if (tasks == null || tasks.Count == 0) return;
         lock (_lock)

@@ -11,7 +11,7 @@ XUnity.AutoLLMTranslator 是一个 **Unity 游戏文本自动翻译插件**，�
 1. 将游戏文本通过 LLM API（兼容 OpenAI 格式）进行翻译
 2. 支持 SSE 流式解析、对话历史（缓存复用）、批量合并、并发控制、限速指数退避
 3. 目标框架 .NET Framework 3.5 (net35)，兼容 Unity Mono 运行时
-4. 零 NuGet 运行时依赖（仅构建工具 ILRepack 来自 NuGet）
+4. 零 NuGet 依赖
 5. 本地 DLL 引用存放于 `packages/` 目录
 
 **分支说明**：`dev` 分支已完成架构重构（消除 HTTP 代理层），比 `main` 分支代码更简洁、职责更清晰。
@@ -25,13 +25,13 @@ XUnity.AutoLLMTranslator/
 ├── Endpoint/
 │   └── AutoLLMTranslateEndpoint.cs   # 框架适配层：实现 ITranslateEndpoint，协程等待
 ├── Configuration/
-│   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理（220行）
+│   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理（225行）
 │   └── PromptManager.cs              # 系统提示词构建（默认/自定义 .txt）
 ├── Models/
 │   ├── LlmModels.cs                  # 数据模型：LlmMessage, LlmResult, LlmUsage
 │   └── TranslationTask.cs            # 翻译任务实体 + 状态机
 ├── Orchestration/
-│   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理（~320行）
+│   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理（431行）
 │   ├── TaskQueue.cs                  # 线程安全任务队列（AutoResetEvent 信号）
 │   ├── RateLimitGuard.cs             # 指数退避限速控制（5s→10s→20s→40s→60s）
 │   └── RetryHandler.cs               # 重试策略（最多 MaxRetry 次）
@@ -83,7 +83,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 
 ## 四、各文件详解
 
-### 1. `Endpoint/AutoLLMTranslateEndpoint.cs`（87 行）
+### 1. `Endpoint/AutoLLMTranslateEndpoint.cs`（93 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -95,7 +95,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `Translate()` | 协程方法：创建 `TranslationTask` → 入队 → `yield return null` 轮询完成 |
 | `Dispose()` | 调用 `_orchestrator.Shutdown()` |
 
-### 2. `Configuration/AutoLLMConfig.cs`（220 行）
+### 2. `Configuration/AutoLLMConfig.cs`（225 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -107,7 +107,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 日志等级 | 从 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` 和 `[Logging.Disk]` 联合读取 |
 | BepInEx 定位 | 从 TranslatorDirectory 向上查找（含 `core/` 子目录 或 目录名为 `BepInEx`） |
 
-### 3. `Configuration/PromptManager.cs`（51 行）
+### 3. `Configuration/PromptManager.cs`（63 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -116,7 +116,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 占位符替换 | `{{SOURCE_LAN}}` → 源语言，`{{TARGET_LAN}}` → 目标语言 |
 | 首次开启 | 自动创建默认模板文件，方便用户修改 |
 
-### 4. `Models/LlmModels.cs`（26 行）
+### 4. `Models/LlmModels.cs`（25 行）
 
 | 类型 | 字段 |
 |---|---|
@@ -124,7 +124,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `LlmResult` | `FullResponse`, `Usage`(LlmUsage), `ChunkCount`, `DoneReceived`, `ElapsedMs` |
 | `LlmUsage` | `PromptTokens`, `CompletionTokens`, `CacheHitTokens`, `CacheMissTokens` |
 
-### 5. `Models/TranslationTask.cs`（48 行）
+### 5. `Models/TranslationTask.cs`（47 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -135,7 +135,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `MarkFailed()` | 设置错误信息 + 状态 = Failed + IsCompleted = true |
 | `ResetForRetry()` | 状态重置为 Waiting，清空结果（用于重试入队） |
 
-### 6. `Orchestration/TranslationOrchestrator.cs`（314 行）
+### 6. `Orchestration/TranslationOrchestrator.cs`（431 行）
 
 **核心调度引擎**，管理整个翻译生命周期。
 
@@ -156,7 +156,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 5. 失败(429)：`_rateLimitGuard.OnRateLimited()`，`ReEnqueue`（不消耗重试次数）
 6. 失败(其他)：`_retryHandler.ShouldRetry()` → IncrementRetry → ReEnqueue，超限则 MarkFailed
 
-### 7. `Orchestration/TaskQueue.cs`（~120 行）
+### 7. `Orchestration/TaskQueue.cs`（119 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -195,19 +195,19 @@ LlmResult Translate(string url, string apiKey, string model,
     List<LlmMessage> messages, Dictionary<string, object> extraParams);
 ```
 
-### 11. `Translation/LlmClient.cs`（138 行）
+### 11. `Translation/LlmClient.cs`（140 行）
 
 | 要点 | 说明 |
 |---|---|
 | 协议 | HTTP POST，Bearer 认证，Content-Type: application/json |
 | 超时 | Timeout=600000(10min)，ReadWriteTimeout=120000(2min) |
 | 请求体 | 合并 extraParams → 设置 model, messages, response_format(json_object), stream(true), stream_options({include_usage:true}) |
-| SSE 解析 | `data: ` 前缀行 → 逐 chunk 提取 choices[0].delta.content → 最后一次提取 usage 对象 |
+| SSE 解析 | `data:` 前缀行（兼容有无空格）→ 逐 chunk 提取 choices[0].delta.content → 最后一次提取 usage 对象 |
 | `CacheStatsSupported` | 静态属性：首次响应后检测 `prompt_cache_hit_tokens/miss_tokens` 字段 |
 | 消息序列化 | `LlmMessage` → `Dictionary<string, object>`（强类型模型，SimpleJson 不支持反射序列化） |
 | 未收到 [DONE] | 发出警告但保留已拼接的响应内容 |
 
-### 12. `Translation/ConversationHistory.cs`（~120 行）
+### 12. `Translation/ConversationHistory.cs`（151 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -221,14 +221,14 @@ LlmResult Translate(string url, string apiKey, string model,
 | `EstimateTokens()` | 纯文本 token 估算（chars × 3/4） |
 | `IncrementDiscardCount()` | 单条超限丢弃计数 |
 
-### 13. `Prompt.cs`（16 行）
+### 13. `Prompt.cs`（14 行）
 
 | 要点 | 说明 |
 |---|---|
 | 常量 | `Prompt.Default`，含 `{{SOURCE_LAN}}` 和 `{{TARGET_LAN}}` 占位符 |
 | 规则 | 不得拒绝翻译、分析语境统一术语、保留格式标签、输出纯 JSON、不添加解释 |
 
-### 14. `SimpleJson.cs`（273 行）
+### 14. `SimpleJson.cs`（258 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -239,7 +239,7 @@ LlmResult Translate(string url, string apiKey, string model,
 | Unicode | 支持 `\uXXXX` 转义序列 |
 | 容错 | 解析失败返回空 dict/list，不抛异常 |
 
-### 15. `Logger.cs`（40 行）
+### 15. `Logger.cs`（63 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -254,9 +254,18 @@ LlmResult Translate(string url, string apiKey, string model,
 
 ### 数据与序列化
 
-1. **禁止匿名类型**：所有传递给 `SimpleJson.Serialize()` 的对象必须是 `Dictionary<string, object>`、`List<Dictionary>` 或已定义类型的实例，避免反射序列化问题
+1. **禁止匿名类型**：所有传递给 `SimpleJson.Serialize()` 的对象必须是 `Dictionary<string, object>`、`List<Dictionary>` 或基元类型。`Serialize()` 遇到非 IDictionary/IEnumerable/基元的对象会静默返回 `"obj.ToString()"` 字符串而非抛异常——调用方需自行确保类型正确
 2. **消息使用强类型**：dev 分支引入 `LlmMessage` 模型，替代原始 `Dictionary<string, object>` 直传方式
 3. **SSE 单次解析**：`SimpleJson.ParseSseChunk()` 一次调用同时提取 content 和 usage，避免重复遍历 JSON
+
+### 可空引用类型（NRT）
+
+项目启用 `<Nullable>enable</Nullable>`，接受编译器对 nullability 的静态检查：
+
+1. **可能为 null 的引用类型用 `?` 标注**：如 `string?`（`TranslationTask.TranslatedText`）、`LlmUsage?`（`LlmResult.Usage`）、`Thread?`（`_workerThread`）
+2. **语义非空但编译器无法验证初始化的 auto-property 用初始化器**：`= ""`（如 `LlmMessage.Role`）或 `= null!`（如 `AutoLLMConfig.CachedSystemPrompt`，IsValid=true 时由 `PromptManager.Build` 设置）
+3. **XUnity 框架成员视为 null-oblivious**：框架 DLL 无 NRT 标注，`context.UntranslatedText` 等属性在 `string.IsNullOrEmpty` 检查后用 `!` 断言非空
+4. **`SimpleJson.ParseValue` 返回 `object`（非空）**：JSON null 用 `null!` 标注，约定 `Dictionary<string, object>` 的 value 非空
 
 ### 并发与线程安全
 
@@ -327,13 +336,11 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release
 ## 七、目标框架限制（net35 须知）
 
 1. **无 `async/await`**：HTTP 调用使用同步 `HttpWebRequest`，在 ThreadPool 线程上阻塞执行
-2. **无 `System.Text.Json`**：使用自研 `SimpleJson`（273 行递归下降解析器）
+2. **无 `System.Text.Json`**：使用自研 `SimpleJson`（258 行递归下降解析器）
 3. **无 `HttpClient`**：使用 `HttpWebRequest` / `HttpWebResponse`
 4. **`StringBuilder` 无 `AppendJoin`**：手动循环拼接
 5. **LINQ 有限**：`List<T>` 的 `ForEach` 不存在，使用 `foreach`
-6. **无 `nameof`**：使用字符串字面量
-7. **`Path.Combine` 仅支持 2 参数**：多层路径需嵌套调用
-8. **所有 .cs 文件需 `#nullable disable`**（新文件）：因项目级 `Nullable=enable` 但 net35 运行时不完全支持
+6. **`Path.Combine` 仅支持 2 参数**：多层路径需嵌套调用
 
 ---
 
@@ -366,4 +373,3 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release
 2. 不使用 `async/await`（net35 不支持）
 3. 不使用结构化日志框架
 4. 不修改 `packages/` 中的 DLL 文件
-5. 不添加单元测试项目（保持零测试）

@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,7 +19,7 @@ internal class TranslationOrchestrator
     private volatile bool _shutdownRequested;
     private volatile int _processingCount;
     private int _batchSeq;
-    private Thread _workerThread;
+    private Thread? _workerThread;
     private long _totalInputTokens, _totalOutputTokens;
     private long _totalCacheHitTokens, _totalCacheMissTokens;
 
@@ -285,7 +284,7 @@ internal class TranslationOrchestrator
                 if (!int.TryParse(kvp.Key, out index)) continue;
                 if (index < 1 || index > batch.Count) continue;
 
-                string translated = kvp.Value as string;
+                string translated = (kvp.Value as string) ?? "";
                 if (string.IsNullOrEmpty(translated)) continue;
 
                 // 全角转半角

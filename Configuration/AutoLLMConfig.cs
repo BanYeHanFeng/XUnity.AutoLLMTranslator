@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,11 +18,11 @@ internal class AutoLLMConfig
     public bool CustomPrompt { get; set; } = false;
     public bool HalfWidth { get; set; } = true;
     public bool DisableSpamChecks { get; set; } = true;
-    public string BepInExRoot { get; set; }
-    public string SourceLanguage { get; set; }
-    public string DestinationLanguage { get; set; }
-    public Dictionary<string, object> ParsedModelParams { get; set; }
-    public string CachedSystemPrompt { get; set; }
+    public string? BepInExRoot { get; set; }              // FindBepInExRoot 可能返回 null
+    public string? SourceLanguage { get; set; }          // 框架提供，可能 null
+    public string? DestinationLanguage { get; set; }     // 框架提供，可能 null
+    public Dictionary<string, object> ParsedModelParams { get; set; } = new Dictionary<string, object>();
+    public string CachedSystemPrompt { get; set; } = null!;  // IsValid=true 时由 PromptManager.Build 设置
 
     // 日志等级
     public bool InfoEnabled { get; set; } = true;
@@ -101,13 +100,13 @@ internal class AutoLLMConfig
     /// 从 TranslatorDirectory 向上查找 BepInEx 根目录：
     /// 含 core/ 子目录 或 目录名为 BepInEx。
     /// </summary>
-    private static string FindBepInExRoot(string translatorDir)
+    private static string? FindBepInExRoot(string? translatorDir)
     {
         if (string.IsNullOrEmpty(translatorDir)) return null;
         var dir = translatorDir;
         for (int i = 0; i < 10; i++)
         {
-            if (Directory.Exists(Path.Combine(dir, "core"))) break;
+            if (Directory.Exists(Path.Combine(dir!, "core"))) break;
             if ((Path.GetFileName(dir) ?? "").Equals("BepInEx", StringComparison.OrdinalIgnoreCase)) break;
             var parent = Path.GetDirectoryName(dir);
             if (parent == dir || string.IsNullOrEmpty(parent)) break;
@@ -119,11 +118,12 @@ internal class AutoLLMConfig
     /// <summary>
     /// 从 BepInEx/config/BepInEx.cfg 读取日志等级（与原始 Logger.Init 逻辑一致）。
     /// </summary>
-    private static void ParseLogLevels(string bepinExRoot, AutoLLMConfig config)
+    private static void ParseLogLevels(string? bepinExRoot, AutoLLMConfig config)
     {
+        if (string.IsNullOrEmpty(bepinExRoot)) return;
         try
         {
-            var cfgPath = Path.Combine(Path.Combine(bepinExRoot, "config"), "BepInEx.cfg");
+            var cfgPath = Path.Combine(Path.Combine(bepinExRoot!, "config"), "BepInEx.cfg");
             if (!File.Exists(cfgPath)) return;
 
             var sections = ParseIniFile(cfgPath);

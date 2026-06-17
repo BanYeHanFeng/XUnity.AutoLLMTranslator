@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -13,7 +12,7 @@ internal static class SimpleJson
     #region Serialization
 
     /// <summary>Serialize an object to a JSON string.</summary>
-    public static string Serialize(object obj)
+    public static string Serialize(object? obj)
     {
         if (obj == null) return "null";
         if (obj is bool b) return b ? "true" : "false";
@@ -81,7 +80,7 @@ internal static class SimpleJson
     #region Parsing
 
     /// <summary>Parse a JSON object into a Dictionary. Supports nested objects and arrays.</summary>
-    public static Dictionary<string, object> ParseModelParams(string json)
+    public static Dictionary<string, object> ParseModelParams(string? json)
     {
         try
         {
@@ -96,7 +95,7 @@ internal static class SimpleJson
     }
 
     /// <summary>Parse an SSE chunk once and extract both content and usage, avoiding double parsing.</summary>
-    public static void ParseSseChunk(string json, out string content, out Dictionary<string, object> usage)
+    public static void ParseSseChunk(string json, out string? content, out Dictionary<string, object>? usage)
     {
         content = null;
         usage = null;
@@ -191,14 +190,14 @@ internal static class SimpleJson
     private static object ParseValue(string s, ref int pos)
     {
         pos = SkipWhitespace(s, pos);
-        if (pos >= s.Length) return null;
+        if (pos >= s.Length) return null!;
         char c = s[pos];
         if (c == '"') return ReadString(s, ref pos);
         if (c == '{') return ParseObject(s, ref pos);
         if (c == '[') return ParseArray(s, ref pos);
         if (c == 't' && pos + 3 < s.Length && s[pos + 1] == 'r' && s[pos + 2] == 'u' && s[pos + 3] == 'e') { pos += 4; return true; }
         if (c == 'f' && pos + 4 < s.Length && s[pos + 1] == 'a' && s[pos + 2] == 'l' && s[pos + 3] == 's' && s[pos + 4] == 'e') { pos += 5; return false; }
-        if (c == 'n' && pos + 3 < s.Length && s[pos + 1] == 'u' && s[pos + 2] == 'l' && s[pos + 3] == 'l') { pos += 4; return null; }
+        if (c == 'n' && pos + 3 < s.Length && s[pos + 1] == 'u' && s[pos + 2] == 'l' && s[pos + 3] == 'l') { pos += 4; return null!; }
         return ReadNumber(s, ref pos);
     }
 
@@ -241,7 +240,7 @@ internal static class SimpleJson
     }
 
     /// <summary>Parse a JSON string into a Dictionary. Top-level value must be a JSON object.</summary>
-    public static Dictionary<string, object> ParseJsonObject(string json)
+    public static Dictionary<string, object> ParseJsonObject(string? json)
     {
         try
         {

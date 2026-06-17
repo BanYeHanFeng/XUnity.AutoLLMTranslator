@@ -1,5 +1,4 @@
-﻿#nullable disable
-using System;
+﻿using System;
 using XUnity.Common.Logging;
 
 internal static class Logger
@@ -25,7 +24,7 @@ internal static class Logger
         if (_infoEnabled) XuaLogger.Common.Info(message);
     }
 
-    public static void Info(string message, System.Exception ex)
+    public static void Info(string message, System.Exception? ex)
     {
         if (_infoEnabled) XuaLogger.Common.Info(ex, message);
     }
@@ -35,7 +34,7 @@ internal static class Logger
         if (_debugEnabled) XuaLogger.Common.Debug(message);
     }
 
-    public static void Debug(string message, System.Exception ex)
+    public static void Debug(string message, System.Exception? ex)
     {
         if (_debugEnabled) XuaLogger.Common.Debug(ex, message);
     }
@@ -45,7 +44,7 @@ internal static class Logger
         if (_warnEnabled) XuaLogger.Common.Warn(message);
     }
 
-    public static void Warn(string message, System.Exception ex)
+    public static void Warn(string message, System.Exception? ex)
     {
         if (_warnEnabled) XuaLogger.Common.Warn(ex, message);
     }
@@ -56,7 +55,7 @@ internal static class Logger
         catch { Console.Error.WriteLine("[ALLM_Error]: " + message); }
     }
 
-    public static void Error(string message, System.Exception ex)
+    public static void Error(string message, System.Exception? ex)
     {
         try { XuaLogger.Common.Error(ex, message); }
         catch { Console.Error.WriteLine("[ALLM_Error]: " + message + " | " + ex); }

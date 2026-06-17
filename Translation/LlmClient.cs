@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -64,7 +63,7 @@ internal class LlmClient : ILlmClient
                 string data = line.Substring(5).TrimStart();
                 if (data == "[DONE]") { done = true; break; }
                 chunks++;
-                SimpleJson.ParseSseChunk(data, out string content, out Dictionary<string, object> u);
+                SimpleJson.ParseSseChunk(data, out string? content, out Dictionary<string, object>? u);
                 if (!string.IsNullOrEmpty(content))
                     fullResponse.Append(content);
                 if (u != null) usage = u;
@@ -109,9 +108,9 @@ internal class LlmClient : ILlmClient
     {
         if (usage.ContainsKey("prompt_tokens"))
         {
-            result.Usage = new LlmUsage();
-            result.Usage.PromptTokens = Convert.ToInt64(usage["prompt_tokens"]);
-            result.Usage.CompletionTokens = usage.ContainsKey("completion_tokens")
+            var u = new LlmUsage();
+            u.PromptTokens = Convert.ToInt64(usage["prompt_tokens"]);
+            u.CompletionTokens = usage.ContainsKey("completion_tokens")
                 ? Convert.ToInt64(usage["completion_tokens"]) : 0;
 
             if (!_cacheStatsChecked)
@@ -126,10 +125,11 @@ internal class LlmClient : ILlmClient
             if (_cacheStatsSupported)
             {
                 if (usage.TryGetValue("prompt_cache_hit_tokens", out object hit))
-                    result.Usage.CacheHitTokens = Convert.ToInt64(hit);
+                    u.CacheHitTokens = Convert.ToInt64(hit);
                 if (usage.TryGetValue("prompt_cache_miss_tokens", out object miss))
-                    result.Usage.CacheMissTokens = Convert.ToInt64(miss);
+                    u.CacheMissTokens = Convert.ToInt64(miss);
             }
+            result.Usage = u;
         }
         else if (!_warnedUsageMissing)
         {
