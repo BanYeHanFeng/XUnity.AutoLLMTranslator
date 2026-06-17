@@ -38,7 +38,7 @@
 - Log level is now managed uniformly by `BepInEx.cfg`, output to `LogOutput.log`
 - Added `MaxContext` parameter for custom maximum context length
 - Added `CustomPrompt` parameter for fully customizable system prompts
-- Streamlined default prompt (2898 chars → 132 chars)
+- Streamlined default prompt (2898 chars → 170 chars)
 
 **Logging**
 - Added input/output token counts, cache hit/miss, token speed, elapsed time
