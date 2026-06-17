@@ -28,7 +28,8 @@ internal static class SimpleJson
             foreach (DictionaryEntry entry in dict)
             {
                 if (!first) sb.Append(',');
-                sb.Append('"').Append(EscapeString(entry.Key.ToString())).Append("\":").Append(Serialize(entry.Value));
+                // entry.Key 在 net6.0 下标注为 object?，显式处理 null 避免可空警告
+                sb.Append('"').Append(EscapeString(entry.Key?.ToString() ?? "")).Append("\":").Append(Serialize(entry.Value));
                 first = false;
             }
             sb.Append('}');
@@ -49,7 +50,8 @@ internal static class SimpleJson
         }
         // 兜底：仅处理 IDictionary/IEnumerable/基元类型，禁止通过反射序列化匿名类型或 POCO
         // （AGENTS.md 约定：所有 Serialize 入参必须是 Dictionary<string,object>/List/基元）
-        return "\"" + EscapeString(obj.ToString()) + "\"";
+        // object.ToString() 在 net6.0 严格可空下不保证非空返回，显式兜底
+        return "\"" + EscapeString(obj.ToString() ?? "") + "\"";
     }
 
     private static string EscapeString(string s)
@@ -106,19 +108,20 @@ internal static class SimpleJson
             if (obj == null) return;
 
             // Extract choices[0].delta.content
-            if (obj.TryGetValue("choices", out object choicesObj) && choicesObj is List<object> choices && choices.Count > 0)
+            // 用 out var 推断 object? 类型，避免 net6.0 严格可空下 out object 的 CS8600 警告
+            if (obj.TryGetValue("choices", out var choicesObj) && choicesObj is List<object> choices && choices.Count > 0)
             {
                 if (choices[0] is Dictionary<string, object> choice
-                    && choice.TryGetValue("delta", out object deltaObj)
+                    && choice.TryGetValue("delta", out var deltaObj)
                     && deltaObj is Dictionary<string, object> delta
-                    && delta.TryGetValue("content", out object contentVal))
+                    && delta.TryGetValue("content", out var contentVal))
                 {
                     content = contentVal as string;
                 }
             }
 
             // Extract usage
-            if (obj.TryGetValue("usage", out object usageObj) && usageObj is Dictionary<string, object> usageDict)
+            if (obj.TryGetValue("usage", out var usageObj) && usageObj is Dictionary<string, object> usageDict)
                 usage = usageDict;
         }
         catch { }
