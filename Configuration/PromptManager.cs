@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.IO;
 using System.Text;
@@ -16,6 +17,13 @@ internal static class PromptManager
         {
             basePrompt = Prompt.Default;
             Logger.Info("使用默认系统提示词 (" + basePrompt.Length + " 字符)");
+        }
+        else if (string.IsNullOrEmpty(config.BepInExRoot))
+        {
+            // BepInEx 根目录定位失败时 Path.Combine 会抛 ArgumentNullException，
+            // 此处显式回退到默认提示词，避免端点静默禁用
+            Logger.Warn("BepInEx 根目录未定位到，自定义提示词不可用，回退默认提示词");
+            basePrompt = Prompt.Default;
         }
         else
         {

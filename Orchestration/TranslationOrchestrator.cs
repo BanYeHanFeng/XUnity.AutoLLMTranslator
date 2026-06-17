@@ -24,10 +24,11 @@ internal class TranslationOrchestrator
     private long _totalInputTokens, _totalOutputTokens;
     private long _totalCacheHitTokens, _totalCacheMissTokens;
 
-    // HalfWidthRegex: [！-～] (0xFF01-0xFF5E)
+    // HalfWidthRegex: 全角符号 [！-～] (U+FF01 - U+FF5E)
+    // 用 Unicode 范围替代显式字符列表，避免 verbatim string 中 "" 转义带来的字符类构成错误
+    // （旧实现误包含半角 " U+0022 而漏掉全角 ＂ U+FF02，导致半角双引号被错误映射到 U+0142）
     private static readonly Regex HalfWidthRegex =
-        new Regex(@"[！""＃＄％＆＇（）＊＋，－．／０１２３４５６７８９：；＜＝＞？＠［＼］＾＿｀｛｜｝～]",
-                  RegexOptions.Compiled);
+        new Regex(@"[\uFF01-\uFF5E]", RegexOptions.Compiled);
 
     public TaskQueue Queue => _taskQueue;
 
@@ -101,63 +102,11 @@ internal class TranslationOrchestrator
             // 2. 历史超限检查（token 精准判断）
             _history.CheckAndClearIfOverLimit();
 
-            // 3. Token 感知任务选择
-            var batch = new List<TranslationTask>();
-            var overflow = new List<TranslationTask>();
-            int estimatedTotal = _history.TotalContextTokens;
-
-            for (int i = 0; i < pending.Count; i++)
-            {
-                var task = pending[i];
-                int taskEstimate = _history.EstimateTokens(task.UntranslatedText);
-                int newTotal = estimatedTotal + taskEstimate;
-
-                if (newTotal > _config.MaxContext)
-                {
-                    if (batch.Count == 0)
-                    {
-                        if (taskEstimate > _config.MaxContext)
-                        {
-                            // 文本自身确实超限 → 丢弃
-                            task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
-                            _taskQueue.MarkCompleted();
-                            _history.IncrementDiscardCount();
-                            Logger.Warn("单条文本超出最大上下文(" + _config.MaxContext + "), 丢弃(第" +
-                                _history.DiscardCount + "次) | 估算" + taskEstimate +
-                                " tokens | 文本: " + Truncate(task.UntranslatedText, 80));
-                            estimatedTotal = _history.TotalContextTokens; // 重置
-                            continue;
-                        }
-                        else
-                        {
-                            // 历史太满导致装不下 → 清空历史后重试本条
-                            Logger.Info("上下文接近上限(" + estimatedTotal + "/" + _config.MaxContext + "), " +
-                                "清空历史以容纳新任务 | 文本估算" + taskEstimate + " tokens");
-                            _history.ClearHistory();
-                            estimatedTotal = _history.TotalContextTokens;
-                            newTotal = estimatedTotal + taskEstimate;
-                            // fall through to batch.Add below
-                        }
-                    }
-                    else
-                    {
-                        // 正常截断："下一句"逻辑——本条及后续全回 overflow
-                        overflow.Add(task);
-                        for (int j = i + 1; j < pending.Count; j++)
-                            overflow.Add(pending[j]);
-                        break;
-                    }
-                }
-
-                batch.Add(task);
-                estimatedTotal = newTotal;
-            }
-
-            if (batch.Count == 0)
-            {
-                // 全部被丢弃 → 继续循环尝试下一批兼容任务
-                continue;
-            }
+            // 3. Token 感知任务选择（复杂超限处理封装在 SelectBatch 内）
+            List<TranslationTask> batch, overflow;
+            int estimatedTotal;
+            if (!SelectBatch(pending, out batch, out overflow, out estimatedTotal))
+                continue;   // 全部被丢弃 → 继续循环尝试下一批兼容任务
 
             // 4. 溢出任务归位（插入队首，优先于新到达）
             if (overflow.Count > 0)
@@ -176,6 +125,70 @@ internal class TranslationOrchestrator
             var capturedBatch = batch;
             ThreadPool.QueueUserWorkItem(_ => ProcessBatch(capturedBatch));
         }
+    }
+
+    /// <summary>
+    /// 从 pending 列表中按 MaxContext 上限选取一批任务。
+    /// 超限任务的处理策略：
+    ///   - batch 非空时超限 → 本条及后续全归 overflow（"下一句"截断逻辑）
+    ///   - batch 为空时单条自身超限 → MarkFailed 丢弃
+    ///   - batch 为空时历史太满 → ClearHistory 后纳入本条
+    /// </summary>
+    /// <returns>true 表示 batch 非空（可提交）；false 表示全部被丢弃，应继续下一轮。</returns>
+    private bool SelectBatch(List<TranslationTask> pending,
+        out List<TranslationTask> batch, out List<TranslationTask> overflow,
+        out int estimatedTotal)
+    {
+        batch = new List<TranslationTask>();
+        overflow = new List<TranslationTask>();
+        estimatedTotal = _history.TotalContextTokens;
+
+        for (int i = 0; i < pending.Count; i++)
+        {
+            var task = pending[i];
+            int taskEstimate = _history.EstimateTokens(task.UntranslatedText);
+            int newTotal = estimatedTotal + taskEstimate;
+
+            if (newTotal <= _config.MaxContext)
+            {
+                batch.Add(task);
+                estimatedTotal = newTotal;
+                continue;
+            }
+
+            // 超限分支：batch 非空 → 本条及后续全归 overflow
+            if (batch.Count > 0)
+            {
+                overflow.Add(task);
+                for (int j = i + 1; j < pending.Count; j++)
+                    overflow.Add(pending[j]);
+                return true;
+            }
+
+            // batch 为空时的超限处理
+            if (taskEstimate > _config.MaxContext)
+            {
+                // 文本自身确实超限 → 丢弃
+                task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
+                _taskQueue.MarkCompleted();
+                _history.IncrementDiscardCount();
+                Logger.Warn("单条文本超出最大上下文(" + _config.MaxContext + "), 丢弃(第" +
+                    _history.DiscardCount + "次) | 估算" + taskEstimate +
+                    " tokens | 文本: " + Truncate(task.UntranslatedText, 80));
+                estimatedTotal = _history.TotalContextTokens;   // 重置
+                continue;
+            }
+
+            // 历史太满导致装不下 → 清空历史后纳入本条
+            Logger.Info("上下文接近上限(" + estimatedTotal + "/" + _config.MaxContext + "), " +
+                "清空历史以容纳新任务 | 文本估算" + taskEstimate + " tokens");
+            _history.ClearHistory();
+            estimatedTotal = _history.TotalContextTokens;
+            batch.Add(task);
+            estimatedTotal += taskEstimate;
+        }
+
+        return batch.Count > 0;
     }
 
     // ---- 批次处理 ----
@@ -219,13 +232,13 @@ internal class TranslationOrchestrator
 
             _rateLimitGuard.Reset();
 
-            // Token 统计（累积）
-            _totalInputTokens += result.Usage?.PromptTokens ?? 0;
-            _totalOutputTokens += result.Usage?.CompletionTokens ?? 0;
+            // Token 统计（累积，并发安全：ProcessBatch 在 ThreadPool 上并行执行）
+            Interlocked.Add(ref _totalInputTokens, result.Usage?.PromptTokens ?? 0);
+            Interlocked.Add(ref _totalOutputTokens, result.Usage?.CompletionTokens ?? 0);
             if (LlmClient.CacheStatsSupported)
             {
-                _totalCacheHitTokens += result.Usage?.CacheHitTokens ?? 0;
-                _totalCacheMissTokens += result.Usage?.CacheMissTokens ?? 0;
+                Interlocked.Add(ref _totalCacheHitTokens, result.Usage?.CacheHitTokens ?? 0);
+                Interlocked.Add(ref _totalCacheMissTokens, result.Usage?.CacheMissTokens ?? 0);
             }
 
             // ---- 批次完成（Debug） ----

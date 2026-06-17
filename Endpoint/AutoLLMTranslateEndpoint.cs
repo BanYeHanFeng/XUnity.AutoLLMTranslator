@@ -4,7 +4,7 @@ using System.Collections;
 using XUnity.AutoTranslator.Plugin.Core.Endpoints;
 
 
-internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
+internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
 {
     private TranslationOrchestrator _orchestrator;
     private bool _initialized;

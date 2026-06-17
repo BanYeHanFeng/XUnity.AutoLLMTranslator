@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,8 +59,9 @@ internal class LlmClient : ILlmClient
             while ((line = reader.ReadLine()) != null)
             {
                 if (string.IsNullOrEmpty(line)) continue;
-                if (!line.StartsWith("data: ")) continue;
-                string data = line.Substring(6);
+                // 兼容 "data: "（OpenAI 规范）与 "data:"（部分兼容服务）两种前缀
+                if (!line.StartsWith("data:")) continue;
+                string data = line.Substring(5).TrimStart();
                 if (data == "[DONE]") { done = true; break; }
                 chunks++;
                 SimpleJson.ParseSseChunk(data, out string content, out Dictionary<string, object> u);

@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections.Generic;
 
@@ -75,7 +76,11 @@ internal class ConversationHistory
                 _clearCount++;
                 Logger.Info("历史清空: tokens=" + oldTokens + " 超过最大上下文(" + MaxContext + "), 清空次数=" + _clearCount);
             }
-            Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
+            // Debug 日志加守卫，避免在 Debug 关闭时无谓构造字符串
+            if (Logger.IsDebugEnabled)
+            {
+                Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
+            }
         }
     }
 
@@ -88,11 +93,15 @@ internal class ConversationHistory
             if (!_apiReturnsTokens)
             {
                 _apiReturnsTokens = true;
-                Logger.Debug("Token 追踪: 接口返回精确 token 统计，切换为精确模式");
+                if (Logger.IsDebugEnabled)
+                    Logger.Debug("Token 追踪: 接口返回精确 token 统计，切换为精确模式");
             }
             int newTotal = (int)(promptTokens + completionTokens);
-            Logger.Debug("Token 精确更新: 输入=" + promptTokens + " 输出=" + completionTokens
-                + " 合计=" + newTotal + " (旧值=" + _totalContextTokens + ")");
+            if (Logger.IsDebugEnabled)
+            {
+                Logger.Debug("Token 精确更新: 输入=" + promptTokens + " 输出=" + completionTokens
+                    + " 合计=" + newTotal + " (旧值=" + _totalContextTokens + ")");
+            }
             _totalContextTokens = newTotal;
         }
     }
@@ -110,8 +119,11 @@ internal class ConversationHistory
             {
                 int added = (userInput.Length + assistantOutput.Length) * 3 / 4;
                 _totalContextTokens += added;
-                Logger.Debug("Token 估算累加: +" + added + " tokens (用户=" + userInput.Length
-                    + "字符, 回答=" + assistantOutput.Length + "字符), 累积=" + _totalContextTokens);
+                if (Logger.IsDebugEnabled)
+                {
+                    Logger.Debug("Token 估算累加: +" + added + " tokens (用户=" + userInput.Length
+                        + "字符, 回答=" + assistantOutput.Length + "字符), 累积=" + _totalContextTokens);
+                }
             }
         }
     }

@@ -70,10 +70,10 @@ internal class AutoLLMConfig
         ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, config.ParallelCount * 2);
         ServicePointManager.Expect100Continue = false;
 
-        // 7. URL 自动补尾
+        // 7. URL 自动补尾（两种结尾互斥，用 else if 表达语义）
         if (config.Url.EndsWith("/v1"))
             config.Url += "/chat/completions";
-        if (config.Url.EndsWith("/v1/"))
+        else if (config.Url.EndsWith("/v1/"))
             config.Url += "chat/completions";
 
         // 8. 语言
@@ -159,7 +159,13 @@ internal class AutoLLMConfig
             config.InfoEnabled = (cEnabled && cInfo) || (dEnabled && dInfo);
             config.WarnEnabled = (cEnabled && cWarn) || (dEnabled && dWarn);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // 此时 Logger 尚未 Init，无法用 Logger 输出；用 Console.Error 兜底
+            // 失败时保留各日志级别的默认开关（Info/Warn 开，Debug 关）
+            try { Console.Error.WriteLine("[ALLM]: 解析 BepInEx.cfg 日志等级失败: " + ex.Message); }
+            catch { }
+        }
     }
 
     // ---- INI 解析辅助方法（从原始 Logger.cs 迁移） ----

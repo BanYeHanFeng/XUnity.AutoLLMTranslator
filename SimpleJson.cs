@@ -48,22 +48,8 @@ internal static class SimpleJson
             sb.Append(']');
             return sb.ToString();
         }
-        // Handle anonymous types and plain objects via reflection
-        var type = obj.GetType();
-        var props = type.GetProperties();
-        if (props.Length > 0)
-        {
-            var sb = new StringBuilder("{");
-            bool first = true;
-            foreach (var prop in props)
-            {
-                if (!first) sb.Append(',');
-                sb.Append('"').Append(EscapeString(prop.Name)).Append("\":").Append(Serialize(prop.GetValue(obj, null)));
-                first = false;
-            }
-            sb.Append('}');
-            return sb.ToString();
-        }
+        // 兜底：仅处理 IDictionary/IEnumerable/基元类型，禁止通过反射序列化匿名类型或 POCO
+        // （AGENTS.md 约定：所有 Serialize 入参必须是 Dictionary<string,object>/List/基元）
         return "\"" + EscapeString(obj.ToString()) + "\"";
     }
 

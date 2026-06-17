@@ -4,8 +4,8 @@ using XUnity.Common.Logging;
 
 internal static class Logger
 {
-    static bool _infoEnabled  = true;
-    static bool _warnEnabled  = true;
+    static bool _infoEnabled = true;
+    static bool _warnEnabled = true;
     static bool _debugEnabled = false;
     // 错误级别始终启用，不需要标志位
 

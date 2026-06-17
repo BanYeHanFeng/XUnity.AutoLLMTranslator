@@ -204,7 +204,7 @@ LlmResult Translate(string url, string apiKey, string model,
 | 请求体 | 合并 extraParams → 设置 model, messages, response_format(json_object), stream(true), stream_options({include_usage:true}) |
 | SSE 解析 | `data: ` 前缀行 → 逐 chunk 提取 choices[0].delta.content → 最后一次提取 usage 对象 |
 | `CacheStatsSupported` | 静态属性：首次响应后检测 `prompt_cache_hit_tokens/miss_tokens` 字段 |
-| 消息序列化 | `LlmMessage` → `Dictionary<string, object>`（避免 SimpleJson 反射匿名类型问题） |
+| 消息序列化 | `LlmMessage` → `Dictionary<string, object>`（强类型模型，SimpleJson 不支持反射序列化） |
 | 未收到 [DONE] | 发出警告但保留已拼接的响应内容 |
 
 ### 12. `Translation/ConversationHistory.cs`（~120 行）
@@ -232,7 +232,7 @@ LlmResult Translate(string url, string apiKey, string model,
 
 | 要点 | 说明 |
 |---|---|
-| 序列化 | `Serialize(object)` 支持 null/bool/string/数值/IDictionary/IEnumerable/反射对象 |
+| 序列化 | `Serialize(object)` 支持 null/bool/string/数值/IDictionary/IEnumerable（禁止匿名类型，无反射分支） |
 | 解析 | 完整的递归下降解析器：`ParseObject` / `ParseArray` / `ParseValue` / `ReadString` / `ReadNumber` |
 | SSE 专用 | `ParseSseChunk()` 单次解析同时提取 content 和 usage（避免双解析） |
 | 特殊方法 | `ParseJsonObject()` / `ParseModelParams()` 返回 `Dictionary<string, object>` |
@@ -300,24 +300,21 @@ LlmResult Translate(string url, string apiKey, string model,
 ### 构建命令
 
 ```bash
-# 本地构建（CI=false 时启用 ILRepack 合并 + XCOPY 复制）
+# 构建输出到 bin/Release/net35/XUnity.AutoLLMTranslator.dll
 dotnet build XUnity.AutoLLMTranslator.sln -c Release
-
-# CI 构建（跳过 ILRepack 和 XCOPY）
-CI=true dotnet build XUnity.AutoLLMTranslator.sln -c Release
 ```
 
 ### 构建流程
 
 1. `dotnet build` 编译为 `net35` 目标
-2. ILRepack：将 `packages/` 中的 XUnity DLL 合并到输出程序集（本地构建）
-3. XCOPY：复制到 `$(GameDir)` 配置的游戏目录（本地构建）
-4. CI 环境跳过步骤 2 和 3
+2. 直接引用 `packages/` 中的 XUnity DLL（不打包合并，运行时由 BepInEx 加载同目录 DLL）
+
+> 历史版本曾通过 ILRepack 合并 + XCOPY 复制到游戏目录，当前 SDK 风格 csproj 已移除该流程。
 
 ### 发布流程（GitHub Actions）
 
-- 推送到 `main` 分支 → 生成预发布版（版本号：`yyyyMMdd-短哈希`）
-- 推送 `v*` 标签 → 生成正式版（版本号：tag 名），已存在则追加 assets
+- 推送到任意分支 → 构建 + 上传 Artifact（`XUnity.AutoLLMTranslator`）
+- 推送 `v*` 标签 → 额外创建/更新 GitHub Release（tag 名为版本号，已存在则追加 assets）
 
 ### 测试
 
