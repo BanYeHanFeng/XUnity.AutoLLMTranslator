@@ -10,9 +10,9 @@ XUnity.AutoLLMTranslator 是一个 **Unity 游戏文本自动翻译插件**，�
 
 1. 将游戏文本通过 LLM API（兼容 OpenAI 格式）进行翻译
 2. 支持 SSE 流式解析、对话历史（缓存复用）、批量合并、并发控制、限速指数退避
-3. 双目标框架：`net35`（Mono / BepInEx 5）+ `net6.0`（IL2CPP / BepInEx 6），共用同一份源码
+3. 目标框架 .NET Framework 3.5 (net35)，兼容 Unity Mono 运行时
 4. 零 NuGet 依赖
-5. 本地 DLL 引用按目标框架分目录存放于 `packages/net35/` 与 `packages/net6.0/`
+5. 本地 DLL 引用存放于 `packages/` 目录
 
 **分支说明**：`dev` 分支已完成架构重构（消除 HTTP 代理层），比 `main` 分支代码更简洁、职责更清晰。
 
@@ -43,9 +43,7 @@ XUnity.AutoLLMTranslator/
 ├── SimpleJson.cs                     # 零依赖 JSON 序列化/解析器
 ├── Logger.cs                         # 日志封装（委托给 XuaLogger.Common）
 ├── XUnity.AutoLLMTranslator.csproj   # SDK 风格项目文件
-├── packages/
-│   ├── net35/                       # net35 框架 DLL（Mono / BepInEx 5）
-│   └── net6.0/                      # net6.0 框架 DLL（IL2CPP / BepInEx 6）
+├── packages/                         # XUnity 框架本地 DLL 引用
 ├── .github/workflows/release.yml     # CI：Windows 构建 + GitHub Release 自动发布
 ├── README.md / README.en.md          # 中英双语项目说明
 └── LICENSE.txt                       # 许可证
@@ -305,87 +303,44 @@ LlmResult Translate(string url, string apiKey, string model,
 
 ### 前置条件
 
-1. .NET 8.0+ SDK（同时构建 net35 与 net6.0 两个目标；net35 引用程序集通过 `Microsoft.NETFramework.ReferenceAssemblies` NuGet 包自动获取）
-2. 本地 `packages/net35/` 与 `packages/net6.0/` 目录包含对应目标框架的 XUnity 框架 DLL
-   - `packages/net35/*.dll`：从 XUnity.AutoTranslator 框架的 net35 构建产物获取
-   - `packages/net6.0/*.dll`：从 XUnity.AutoTranslator 框架的 net6.0（IL2CPP）构建产物获取
-
-### 更新 packages/ 中的 XUnity 框架 DLL（维护说明）
-
-当 XUnity.AutoTranslator 框架版本升级时，需重新构建并更新 `packages/` 中的 3 个核心 DLL：
-`XUnity.AutoTranslator.Plugin.Core.dll`、`XUnity.AutoTranslator.Plugin.ExtProtocol.dll`、`XUnity.Common.dll`。
-
-**Windows 环境**（推荐，框架 PostBuild 脚本原生支持）：
-```powershell
-cd <XUnity.AutoTranslator 仓库根目录>
-dotnet build src\XUnity.AutoTranslator.Plugin.Core\XUnity.AutoTranslator.Plugin.Core.csproj -c Release
-# 产物路径：
-#   src\XUnity.AutoTranslator.Plugin.Core\bin\Release\net35\*.dll   → 拷贝到 packages\net35\
-#   src\XUnity.AutoTranslator.Plugin.Core\bin\Release\net6.0\*.dll  → 拷贝到 packages\net6.0\
-```
-
-**Linux/非 Windows 环境**：框架的 PostBuild Target 使用 Windows cmd 语法（`if $(ConfigurationName) == Release (...)` + `XCOPY`），在 Linux 上会构建失败。需在框架根目录临时放置 `Directory.Build.targets` 覆盖 PostBuild 为 no-op：
-```xml
-<Project>
-  <Target Name="PostBuild" />
-  <Target Name="PostBuildNET35" />
-  <Target Name="PostBuildNET460" />
-  <Target Name="PostBuildNET472" />
-  <Target Name="ILRepackNET35" />
-  <Target Name="ILRepackNET460" />
-</Project>
-```
-此外，框架 `src/XUnity.AutoTranslator.Plugin.Core/Properties/Resources.resx` 引用的 `translations/statictranslations.txt` 文件未入 git，需创建一个占位空文件（本仓库不使用该静态翻译表，空文件无副作用）。构建完成后删除这两个临时文件。
+1. .NET 8.0+ SDK（用于构建 net35 目标）
+2. 本地 `packages/` 目录包含 XUnity 框架 DLL
 
 ### 构建命令
 
 ```bash
-# 同时构建 net35 与 net6.0 两个目标
-# 产物：bin/Release/net35/XUnity.AutoLLMTranslator.dll       (Mono)
-#       bin/Release/net6.0/XUnity.AutoLLMTranslator.dll      (IL2CPP)
-dotnet build XUnity.AutoLLMTranslator.csproj -c Release
-
-# 仅构建单个目标
-dotnet build XUnity.AutoLLMTranslator.csproj -c Release -f net35
-dotnet build XUnity.AutoLLMTranslator.csproj -c Release -f net6.0
+# 构建输出到 bin/Release/net35/XUnity.AutoLLMTranslator.dll
+dotnet build XUnity.AutoLLMTranslator.sln -c Release
 ```
 
 ### 构建流程
 
-1. `dotnet build` 同时编译 `net35` 与 `net6.0` 两个目标
-2. 通过 `Choose`/`When` 结构按 `$(TargetFramework)` 选择对应 `packages/` 子目录的 DLL
-3. Reference 设置 `<Private>false</Private>`，不复制到输出目录（运行时由 BepInEx 框架提供同目录 DLL）
-4. net6.0 目标抑制 `SYSLIB0014` 警告（HttpWebRequest 在 .NET 6 obsolete，但本仓库与框架保持一致不改用 HttpClient）
-5. 调整 `AssemblySearchPaths` 将 `{HintPathFromItem}` 置于 `{CandidateAssemblyFiles}` 之前。SDK 默认顺序中 CandidateAssemblyFiles 会扫描项目目录下所有 DLL（含 `packages/net35/`），在双目标构建时可能先匹配到错误版本并锁定版本号，导致 HintPath 指向的正确版本被跳过。此调整为双目标共用同名 DLL 引用的必需配置
+1. `dotnet build` 编译为 `net35` 目标
+2. 直接引用 `packages/` 中的 XUnity DLL（不打包合并，运行时由 BepInEx 加载同目录 DLL）
 
 > 历史版本曾通过 ILRepack 合并 + XCOPY 复制到游戏目录，当前 SDK 风格 csproj 已移除该流程。
 
 ### 发布流程（GitHub Actions）
 
-- 推送到任意分支 → 构建 + 上传两个 Artifact：
-  - `XUnity.AutoLLMTranslator-Mono`（net35）
-  - `XUnity.AutoLLMTranslator-IL2CPP`（net6.0，重命名为 `XUnity.AutoLLMTranslator.IL2CPP.dll`）
-- 推送 `v*` 标签 → 额外创建/更新 GitHub Release（同时上传 Mono 与 IL2CPP 两个 DLL）
+- 推送到任意分支 → 构建 + 上传 Artifact（`XUnity.AutoLLMTranslator`）
+- 推送 `v*` 标签 → 额外创建/更新 GitHub Release（tag 名为版本号，已存在则追加 assets）
 
 ### 测试
 
 **本项目无测试代码**。验证方式：
-1. 本地 `dotnet build` 双目标编译通过（零警告零错误）
-2. 放入 Unity 游戏（BepInEx 5 Mono 或 BepInEx 6 IL2CPP 环境）实际测试翻译流程
+1. 本地 `dotnet build` 编译通过
+2. 放入 Unity 游戏（BepInEx 环境）实际测试翻译流程
 
 ---
 
-## 七、目标框架限制（net35 须知，net6.0 共用同一份源码）
-
-以下限制源自 net35，但因双目标共用源码，net6.0 编译时同样遵循：
+## 七、目标框架限制（net35 须知）
 
 1. **无 `async/await`**：HTTP 调用使用同步 `HttpWebRequest`，在 ThreadPool 线程上阻塞执行
 2. **无 `System.Text.Json`**：使用自研 `SimpleJson`（258 行递归下降解析器）
-3. **无 `HttpClient`**：使用 `HttpWebRequest` / `HttpWebResponse`（net6.0 下 obsolete 但可用，与框架 `XUnityWebClient` 一致，csproj 抑制 `SYSLIB0014`）
+3. **无 `HttpClient`**：使用 `HttpWebRequest` / `HttpWebResponse`
 4. **`StringBuilder` 无 `AppendJoin`**：手动循环拼接
 5. **LINQ 有限**：`List<T>` 的 `ForEach` 不存在，使用 `foreach`
 6. **`Path.Combine` 仅支持 2 参数**：多层路径需嵌套调用
-7. **可空引用类型（NRT）双目标兼容**：net6.0 严格可空检查下，对 `Dictionary.TryGetValue(out object)` 等用 `out var` 推断；`object.ToString()` 显式 `?? ""` 兜底
 
 ---
 
@@ -395,7 +350,7 @@ dotnet build XUnity.AutoLLMTranslator.csproj -c Release -f net6.0
 
 1. 阅读相关文件后再修改，理解全局设计约束（目标框架、序列化限制、线程模型）
 2. 保持文件职责单一：Endpoint → Orchestration → Translation 三层清晰
-3. 新增依赖需评估 net35 与 net6.0 双目标兼容性
+3. 新增依赖需评估 net35 兼容性
 4. 序列化只使用 `SimpleJson` 或 `Dictionary<string, object>`
 5. 日志通过 `Logger` 静态方法输出，不直接使用 `XuaLogger`
 
@@ -417,5 +372,4 @@ dotnet build XUnity.AutoLLMTranslator.csproj -c Release -f net6.0
 1. 不引入外部 JSON 库（如 Newtonsoft.Json）
 2. 不使用 `async/await`（net35 不支持）
 3. 不使用结构化日志框架
-4. 不修改 `packages/net35/` 与 `packages/net6.0/` 中的 DLL 文件
-5. 不引入仅在 net6.0 可用而 net35 缺失的 API（如 `Span<T>`、`async/await`、`HttpClient`），保持双目标源码共用
+4. 不修改 `packages/` 中的 DLL 文件

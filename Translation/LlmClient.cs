@@ -53,7 +53,7 @@ internal class LlmClient : ILlmClient
             var usage = new Dictionary<string, object>();
             int chunks = 0;
             bool done = false;
-            string? line;
+            string line;
 
             while ((line = reader.ReadLine()) != null)
             {
@@ -124,10 +124,9 @@ internal class LlmClient : ILlmClient
 
             if (_cacheStatsSupported)
             {
-                // out var 推断 object?，避免 net6.0 严格可空警告
-                if (usage.TryGetValue("prompt_cache_hit_tokens", out var hit))
+                if (usage.TryGetValue("prompt_cache_hit_tokens", out object hit))
                     u.CacheHitTokens = Convert.ToInt64(hit);
-                if (usage.TryGetValue("prompt_cache_miss_tokens", out var miss))
+                if (usage.TryGetValue("prompt_cache_miss_tokens", out object miss))
                     u.CacheMissTokens = Convert.ToInt64(miss);
             }
             result.Usage = u;

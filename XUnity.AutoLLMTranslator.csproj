@@ -1,64 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net35;net6.0</TargetFrameworks>
+		<TargetFramework>net35</TargetFramework>
 		<ImplicitUsings>disable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<LangVersion>latest</LangVersion>
 	</PropertyGroup>
+	
+	<ItemGroup>
+		<Reference Include="XUnity.AutoTranslator.Plugin.Core">
+			<HintPath>packages\XUnity.AutoTranslator.Plugin.Core.dll</HintPath>
+		</Reference>
+		<Reference Include="XUnity.AutoTranslator.Plugin.ExtProtocol">
+			<HintPath>packages\XUnity.AutoTranslator.Plugin.ExtProtocol.dll</HintPath>
+		</Reference>
+		<Reference Include="XUnity.Common">
+			<HintPath>packages\XUnity.Common.dll</HintPath>
+		</Reference>
+	</ItemGroup>
 
-	<!-- net6.0 目标：HttpWebRequest/ServicePointManager 等在 .NET 6 标记为 obsolete，
-	     但本仓库与 XUnity.AutoTranslator 框架保持一致（框架的 XUnityWebClient 同样基于 HttpWebRequest），
-	     不改用 HttpClient（会破坏 SSE 流式读取与 net35 共用代码），故抑制 SYSLIB0014 警告。 -->
-	<PropertyGroup Condition="'$(TargetFramework)' == 'net6.0'">
-		<NoWarn>$(NoWarn);SYSLIB0014</NoWarn>
-	</PropertyGroup>
-
-	<!-- 按 TargetFramework 选择对应版本的 XUnity 框架 DLL。
-	     使用 Choose/When 实现互斥分支，确保每个 TargetFramework 只引用对应版本的 packages DLL。 -->
-	<Choose>
-		<When Condition="'$(TargetFramework)' == 'net35'">
-			<ItemGroup>
-				<!-- net35 编译：Mono / BepInEx 5 环境 -->
-				<Reference Include="XUnity.AutoTranslator.Plugin.Core">
-					<HintPath>packages\net35\XUnity.AutoTranslator.Plugin.Core.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-				<Reference Include="XUnity.AutoTranslator.Plugin.ExtProtocol">
-					<HintPath>packages\net35\XUnity.AutoTranslator.Plugin.ExtProtocol.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-				<Reference Include="XUnity.Common">
-					<HintPath>packages\net35\XUnity.Common.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-			</ItemGroup>
-		</When>
-		<Otherwise>
-			<ItemGroup>
-				<!-- net6.0 编译：IL2CPP / BepInEx 6 环境 -->
-				<Reference Include="XUnity.AutoTranslator.Plugin.Core">
-					<HintPath>packages\net6.0\XUnity.AutoTranslator.Plugin.Core.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-				<Reference Include="XUnity.AutoTranslator.Plugin.ExtProtocol">
-					<HintPath>packages\net6.0\XUnity.AutoTranslator.Plugin.ExtProtocol.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-				<Reference Include="XUnity.Common">
-					<HintPath>packages\net6.0\XUnity.Common.dll</HintPath>
-					<Private>false</Private>
-				</Reference>
-			</ItemGroup>
-		</Otherwise>
-	</Choose>
-
-	<!-- 调整 AssemblySearchPaths 顺序：HintPath 优先于 CandidateAssemblyFiles。
-	     默认顺序中 {CandidateAssemblyFiles} 会扫描项目目录下所有 DLL（含 packages/net35/），
-	     在双目标构建时可能先匹配到错误版本并锁定版本号，导致 HintPath 指向的正确版本被跳过。
-	     将 {HintPathFromItem} 置首确保优先使用显式指定的 DLL 路径。 -->
-	<PropertyGroup>
-		<AssemblySearchPaths>{HintPathFromItem};{CandidateAssemblyFiles};{TargetFrameworkDirectory};{RawFileName}</AssemblySearchPaths>
-	</PropertyGroup>
 
 </Project>
