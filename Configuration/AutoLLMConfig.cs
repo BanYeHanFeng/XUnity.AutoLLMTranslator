@@ -11,10 +11,10 @@ internal class AutoLLMConfig
     public string Model { get; set; } = "";
     public string Url { get; set; } = "";
     public string ApiKey { get; set; } = "";
-    public int ParallelCount { get; set; } = 1;
-    public int MaxRetry { get; set; } = 10;
-    public int MaxContext { get; set; } = 4096;
     public string ModelParams { get; set; } = "";
+    public int ParallelCount { get; set; } = 1;
+    public int MaxContext { get; set; } = 4096;
+    public int MaxRetry { get; set; } = 5;
     public bool CustomPrompt { get; set; } = false;
     public bool HalfWidth { get; set; } = true;
     public bool DisableSpamChecks { get; set; } = true;
@@ -37,14 +37,14 @@ internal class AutoLLMConfig
     {
         var config = new AutoLLMConfig();
 
-        // 1. 读取所有配置（string 类型加 ?? "" 防御，防止框架返回 null）
+        // 1. 读取所有配置（顺序与 README.md「全部配置」一致；string 类型加 ?? "" 防御，防止框架返回 null）
         config.Model = context.GetOrCreateSetting("AutoLLM", "Model", "") ?? "";
         config.Url = context.GetOrCreateSetting("AutoLLM", "URL", "") ?? "";
         config.ApiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "") ?? "";
-        config.ParallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
-        config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 10);
-        config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
         config.ModelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "") ?? "";
+        config.ParallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
+        config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
+        config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 5);
         config.CustomPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
         config.HalfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         config.DisableSpamChecks = context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true);

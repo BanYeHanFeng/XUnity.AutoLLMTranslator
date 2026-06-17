@@ -100,7 +100,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 要点 | 说明 |
 |---|---|
 | 配置来源 | `IInitializationContext.GetOrCreateSetting("AutoLLM", key, default)` |
-| 配置项 | Model, URL, APIKey, ParallelCount(1), MaxRetry(10), MaxContext(4096), ModelParams, CustomPrompt, HalfWidth(true), DisableSpamChecks(true) |
+| 配置项 | Model, URL, APIKey, ParallelCount(1), MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt, HalfWidth(true), DisableSpamChecks(true) |
 | URL 补全 | `/v1` → `/v1/chat/completions`，`/v1/` → `/v1/chat/completions` |
 | ThreadPool | 确保最小线程数 ≥ ParallelCount+2 |
 | 系统提示词 | 初始化时通过 `PromptManager.Build()` 预构建并缓存到 `CachedSystemPrompt` |

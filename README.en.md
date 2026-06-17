@@ -66,7 +66,7 @@
 | ModelParams | | Custom model parameters, e.g.: `{"temperature":0.3}` |
 | ParallelCount | `1` | Number of parallel translations. When >1, conversation history is disabled. When parallel slots are full, tasks are queued and multiple short texts are automatically merged into one batch |
 | MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 chars per token). Three handling modes when exceeded: ① Clear conversation history ② Overflow distributed to next batch ③ Single text still exceeding limit is discarded and logged |
-| MaxRetry | `10` | Maximum retry attempts |
+| MaxRetry | `5` | Maximum retry attempts |
 | CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the configuration file is created at `BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
 | DisableSpamChecks | `True` | Whether to disable AutoTranslator spam checks |

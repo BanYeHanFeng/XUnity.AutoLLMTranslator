@@ -66,17 +66,7 @@
 | ModelParams | | 自定义模型参数，如： `{"temperature":0.3}` |
 | ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
 | MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按0.75 字符~1 token)。超限时分三种情况处理:① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
-| MaxRetry | `10` | 最大重试次数 |
-| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`BepInEx/config/AutoLLM_CustomPrompt.txt` |
-| HalfWidth | `True` | 是否将全角字符转换为半角 |
-| DisableSpamChecks | `True` | 是否禁用 AutoTranslator 垃圾检查 |
-| ~~LogLevel~~ | 已移除 | ~~日志等级~~。由`BepInEx.cfg`控制 |
-| ~~Log2File~~ | 已移除 | ~~日志输出文件~~。统一输出`LogOutput.log` |
-| ~~Terminology~~ | 已移除 | ~~术语表~~ |
-| ~~GameName~~ | 已移除 | ~~游戏名称~~ |
-| ~~GameDesc~~ | 已移除 | ~~游戏描述~~ |
-| ~~MaxWordCount~~ | 已移除 | ~~单批最大字符数~~ |
-| MaxRetry | `10` | 最大重试次数 |
+| MaxRetry | `5` | 最大重试次数 |
 | CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
 | DisableSpamChecks | `True` | 是否禁用 AutoTranslator 垃圾检查 |
