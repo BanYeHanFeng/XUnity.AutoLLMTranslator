@@ -19,14 +19,14 @@
 - 事件唤醒 + 50ms 保底轮询，降低延迟
 
 **JSON 输出模式**
-- 设置 JSON 输出模式所需要的参数，模型支持100% JSON输出下，彻底解决模型有概率输出格式错误，导致解析失败的问题
+- 设置 JSON 输出模式所需要的参数，如模型支持 100%JSON 输出下，解决模型有概率输出错误格式带来的解析问题
 
 **对话历史与缓存**
 - 历史翻译使用对话历史，提升缓存命中率，降低历史翻译费用
-- 多并行翻译时自动禁用对话历史，避免缓存前缀被修改导致缓存命中率大幅下降，可能会降低翻译质量
+- 多并行翻译时自动禁用对话历史，避免缓存前缀被修改导致缓存命中率大幅下降，会影响翻译质量
 
 **并行与合并**
-- `ParallelCount` 控制翻译请求数，并行占满时自动排队等待
+- `ParallelCount`控制翻译并行数，并行占满时自动排队等待
 - 排队期间，多条短文本自动合并成一个批次
 
 **限速退避**
@@ -34,10 +34,10 @@
 - 不消耗重试次数
 
 **配置变更**
-- 已移除：`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
-- 日志等级由 `BepInEx.cfg` 统一管理，统一输出到 `LogOutput.log`
-- 新增 `MaxContext` 参数，自定义最大上下文长度
-- 新增 `CustomPrompt` 参数，完全自定义系统提示词
+- 移除`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
+- 日志等级由`BepInEx.cfg`统一管理，统一输出到`LogOutput.log`
+- 新增`MaxContext`参数，自定义最大上下文长度
+- 新增`CustomPrompt`参数，完全自定义系统提示词
 - 精简默认提示词 (2898 字符数→132 字符数)
 
 **日志**
@@ -46,30 +46,49 @@
 - 限速退避、任务积压 (>200 条) 
 - 日志剔除不必要的内容，减少维护压力
 
-## 安装教程
-<p align="center">
-  <a href="docs/安装教程.md">安装教程</a>
+## 常见问题
+**问：如何安装本仓库插件**
+<p>
+  <b>- 答：</b><a href="docs/安装教程.md">安装教程</a><br>
+  <b>- 注：</b>本插件暂不支持 IL2CPP ，后续可能会进行适配
 </p>
 
-## 常见问题
-- 部分字体出现□□□的情况
-<p align="center">
-  <a href="docs/更换字体教程.md">解决方法</a>
+**问：部分字体出现□□□的情况**
+<p>
+  <b>- 答：</b><a href="docs/更换字体教程.md">解决方法</a>
+</p>
+
+**问：模型默认开启思考，但思考又很慢，如何关闭**
+<p>
+  <b>- 答：</b><a href="docs/关闭思考教程.md">关闭方法</a><br>
+  <b>- 注：</b>关闭思考会影响翻译质量，但能换来更快的响应
+</p>
+
+**问：推荐选择哪家模型**
+<p>
+  <b>- 答：</b> DeepSeek 吧，便宜<br>
+  <b>- 注：</b>目前开发者只用过 glm 5.2 和 DeepSeek v4 系列
+</p>
+
+**问：如何本地部署模型**
+<p>
+  <b>- 答：</b>请去哔哩哔哩搜索相关教程，然后根据所设置的上下文，设置<code>MaxContext</code>参数<br>
+  <b>- 注：</b>参数设置错误会导致翻译失败
 </p>
 
 ## 全部配置
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| Model | | 模型名称。模型原生支持 100% JSON 输出最佳(如DeepSeek) |
+| Model | | 模型名称 |
 | URL | | 接口网址。以`/v1`后缀则自动补全至`/v1/chat/completions` |
 | APIKey | | 接口密钥 |
-| ModelParams | | 自定义模型参数，如： `{"temperature":0.3}` |
+| ModelParams | | 自定义模型参数，如：`{"temperature":0.3}` |
 | ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
-| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按0.75 字符~1 token)。超限时分三种情况处理:① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
+| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按1 字符~0.75 token)。超限时分三种情况处理：① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
 | MaxRetry | `5` | 最大重试次数 |
-| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`BepInEx/config/AutoLLM_CustomPrompt.txt` |
+| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt` |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
-| DisableSpamChecks | `True` | 是否禁用 AutoTranslator 垃圾检查 |
+| DisableSpamChecks | `True` | 是否禁用 AutoTranslator 框架垃圾检查 |
 | ~~LogLevel~~ | 已移除 | ~~日志等级~~。由`BepInEx.cfg`控制 |
 | ~~Log2File~~ | 已移除 | ~~日志输出文件~~。统一输出`LogOutput.log` |
 | ~~Terminology~~ | 已移除 | ~~术语表~~ |
