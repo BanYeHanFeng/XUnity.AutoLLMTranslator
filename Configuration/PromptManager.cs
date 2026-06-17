@@ -58,6 +58,10 @@ internal static class PromptManager
         }
         return basePrompt
             .Replace("{{SOURCE_LAN}}", config.SourceLanguage ?? "")
-            .Replace("{{TARGET_LAN}}", config.DestinationLanguage ?? "");
+            .Replace("{{TARGET_LAN}}", config.DestinationLanguage ?? "")
+            // 统一行尾为 LF：避免 Windows(CRLF)/Linux(LF) 构建产物字符串长度漂移，
+            // 同时使 token 估算（chars×0.75）跨平台一致
+            .Replace("\r\n", "\n")
+            .Replace("\r", "\n");
     }
 }
