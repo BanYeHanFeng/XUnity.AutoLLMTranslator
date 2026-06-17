@@ -85,8 +85,8 @@ internal static class SimpleJson
         try
         {
             if (string.IsNullOrEmpty(json)) return new Dictionary<string, object>();
-            int pos = SkipWhitespace(json, 0);
-            return ParseObject(json, ref pos);
+            int pos = SkipWhitespace(json!, 0);
+            return ParseObject(json!, ref pos);
         }
         catch
         {
@@ -245,8 +245,8 @@ internal static class SimpleJson
         try
         {
             if (string.IsNullOrEmpty(json)) return new Dictionary<string, object>();
-            int pos = SkipWhitespace(json, 0);
-            return ParseObject(json, ref pos);
+            int pos = SkipWhitespace(json!, 0);
+            return ParseObject(json!, ref pos);
         }
         catch
         {

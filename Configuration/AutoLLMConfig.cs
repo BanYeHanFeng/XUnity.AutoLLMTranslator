@@ -173,7 +173,7 @@ internal class AutoLLMConfig
     private static Dictionary<string, Dictionary<string, string>> ParseIniFile(string path)
     {
         var result = new Dictionary<string, Dictionary<string, string>>();
-        string currentSection = null;
+        string? currentSection = null;
         foreach (var line in File.ReadAllLines(path))
         {
             var trimmed = line.Trim();
