@@ -1,4 +1,3 @@
-#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -13,7 +12,7 @@ internal static class SimpleJson
     #region Serialization
 
     /// <summary>Serialize an object to a JSON string.</summary>
-    public static string Serialize(object obj)
+    public static string Serialize(object? obj)
     {
         if (obj == null) return "null";
         if (obj is bool b) return b ? "true" : "false";
@@ -48,22 +47,8 @@ internal static class SimpleJson
             sb.Append(']');
             return sb.ToString();
         }
-        // Handle anonymous types and plain objects via reflection
-        var type = obj.GetType();
-        var props = type.GetProperties();
-        if (props.Length > 0)
-        {
-            var sb = new StringBuilder("{");
-            bool first = true;
-            foreach (var prop in props)
-            {
-                if (!first) sb.Append(',');
-                sb.Append('"').Append(EscapeString(prop.Name)).Append("\":").Append(Serialize(prop.GetValue(obj, null)));
-                first = false;
-            }
-            sb.Append('}');
-            return sb.ToString();
-        }
+        // 兜底：仅处理 IDictionary/IEnumerable/基元类型，禁止通过反射序列化匿名类型或 POCO
+        // （AGENTS.md 约定：所有 Serialize 入参必须是 Dictionary<string,object>/List/基元）
         return "\"" + EscapeString(obj.ToString()) + "\"";
     }
 
@@ -95,13 +80,13 @@ internal static class SimpleJson
     #region Parsing
 
     /// <summary>Parse a JSON object into a Dictionary. Supports nested objects and arrays.</summary>
-    public static Dictionary<string, object> ParseModelParams(string json)
+    public static Dictionary<string, object> ParseModelParams(string? json)
     {
         try
         {
             if (string.IsNullOrEmpty(json)) return new Dictionary<string, object>();
-            int pos = SkipWhitespace(json, 0);
-            return ParseObject(json, ref pos);
+            int pos = SkipWhitespace(json!, 0);
+            return ParseObject(json!, ref pos);
         }
         catch
         {
@@ -110,7 +95,7 @@ internal static class SimpleJson
     }
 
     /// <summary>Parse an SSE chunk once and extract both content and usage, avoiding double parsing.</summary>
-    public static void ParseSseChunk(string json, out string content, out Dictionary<string, object> usage)
+    public static void ParseSseChunk(string json, out string? content, out Dictionary<string, object>? usage)
     {
         content = null;
         usage = null;
@@ -205,14 +190,14 @@ internal static class SimpleJson
     private static object ParseValue(string s, ref int pos)
     {
         pos = SkipWhitespace(s, pos);
-        if (pos >= s.Length) return null;
+        if (pos >= s.Length) return null!;
         char c = s[pos];
         if (c == '"') return ReadString(s, ref pos);
         if (c == '{') return ParseObject(s, ref pos);
         if (c == '[') return ParseArray(s, ref pos);
         if (c == 't' && pos + 3 < s.Length && s[pos + 1] == 'r' && s[pos + 2] == 'u' && s[pos + 3] == 'e') { pos += 4; return true; }
         if (c == 'f' && pos + 4 < s.Length && s[pos + 1] == 'a' && s[pos + 2] == 'l' && s[pos + 3] == 's' && s[pos + 4] == 'e') { pos += 5; return false; }
-        if (c == 'n' && pos + 3 < s.Length && s[pos + 1] == 'u' && s[pos + 2] == 'l' && s[pos + 3] == 'l') { pos += 4; return null; }
+        if (c == 'n' && pos + 3 < s.Length && s[pos + 1] == 'u' && s[pos + 2] == 'l' && s[pos + 3] == 'l') { pos += 4; return null!; }
         return ReadNumber(s, ref pos);
     }
 
@@ -255,13 +240,13 @@ internal static class SimpleJson
     }
 
     /// <summary>Parse a JSON string into a Dictionary. Top-level value must be a JSON object.</summary>
-    public static Dictionary<string, object> ParseJsonObject(string json)
+    public static Dictionary<string, object> ParseJsonObject(string? json)
     {
         try
         {
             if (string.IsNullOrEmpty(json)) return new Dictionary<string, object>();
-            int pos = SkipWhitespace(json, 0);
-            return ParseObject(json, ref pos);
+            int pos = SkipWhitespace(json!, 0);
+            return ParseObject(json!, ref pos);
         }
         catch
         {

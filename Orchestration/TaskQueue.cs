@@ -12,7 +12,7 @@ internal class TaskQueue
     private readonly int _maxSize;
 
     private int _waitingTotalChars = 0;
-    private int _outstandingCount = 0;
+    private volatile int _outstandingCount = 0;
 
     public int Count { get { lock (_lock) return _list.Count - _head; } }
     public int WaitingTotalChars { get { lock (_lock) return _waitingTotalChars; } }
@@ -74,7 +74,7 @@ internal class TaskQueue
     /// 用于 overflow 任务归位——它们在原始队列中位于已取走批次的后面，
     /// 应优先于新到达的任务被处理。
     /// </summary>
-    public void ReEnqueueFront(List<TranslationTask> tasks)
+    public void ReEnqueueFront(List<TranslationTask>? tasks)
     {
         if (tasks == null || tasks.Count == 0) return;
         lock (_lock)

@@ -1,12 +1,11 @@
-#nullable disable
 using System;
 using System.Collections;
 using XUnity.AutoTranslator.Plugin.Core.Endpoints;
 
 
-internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
+internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
 {
-    private TranslationOrchestrator _orchestrator;
+    private TranslationOrchestrator? _orchestrator;
     private bool _initialized;
 
     // ---- ITranslateEndpoint 成员 ----
@@ -65,8 +64,8 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
 
         var task = new TranslationTask
         {
-            UntranslatedText = context.UntranslatedText,
-            CharLen = context.UntranslatedText.Length,
+            UntranslatedText = context.UntranslatedText!,
+            CharLen = context.UntranslatedText!.Length,
             CreatedTick = Environment.TickCount,
         };
 
@@ -81,7 +80,7 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint
             yield return null;   // Unity 主线程每帧检查
 
         if (task.State == TaskState.Completed)
-            context.Complete(task.TranslatedText);
+            context.Complete(task.TranslatedText ?? "");
         else
             context.Fail(task.ErrorMessage ?? "翻译失败");
     }
