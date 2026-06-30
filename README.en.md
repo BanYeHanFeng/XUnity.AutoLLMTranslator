@@ -34,11 +34,12 @@
 - Does not consume retry attempts
 
 **Configuration Changes**
-- Removed `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
+- Removed `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval`
+- Removed multi-key load balancing; `APIKey` no longer supports `;`-separated round-robin
 - Log level is now managed uniformly by `BepInEx.cfg`, output to `LogOutput.log`
 - Added `MaxContext` parameter for custom maximum context length
 - Added `CustomPrompt` parameter for fully customizable system prompts
-- Streamlined default prompt (2898 chars → 170 chars)
+- Streamlined default prompt (2947 chars → 170 chars)
 
 **Logging**
 - Added input/output token counts, cache hit/miss, token speed, elapsed time
@@ -81,7 +82,7 @@
 | Parameter | Default | Description |
 |---|---|---|
 | Model | | Model name |
-| URL | | API endpoint. If suffixed with `/v1`, it is auto-completed to `/v1/chat/completions` |
+| URL | | API endpoint. If suffixed with `/v1` or `/v1/`, it is auto-completed to `/v1/chat/completions` |
 | APIKey | | API key |
 | ModelParams | | Custom model parameters, e.g., `{"temperature":0.3}` |
 | ParallelCount | `1` | Number of parallel translations. When >1, conversation history is disabled. When concurrency is full, tasks queue up; during queuing, multiple short texts are automatically merged into one batch. |
@@ -96,3 +97,5 @@
 | ~~GameName~~ | Removed | ~~Game name~~ |
 | ~~GameDesc~~ | Removed | ~~Game description~~ |
 | ~~MaxWordCount~~ | Removed | ~~Max characters per batch~~ |
+| ~~Requirement~~ | Removed | ~~Extra translation requirements/instructions~~ |
+| ~~Interval~~ | Removed | ~~Polling interval~~ |

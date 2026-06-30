@@ -34,11 +34,12 @@
 - 不消耗重试次数
 
 **配置变更**
-- 移除`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount`
+- 移除`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval`
+- 移除多 Key 负载均衡，`APIKey` 不再支持 `;` 分割轮询
 - 日志等级由`BepInEx.cfg`统一管理，统一输出到`LogOutput.log`
 - 新增`MaxContext`参数，自定义最大上下文长度
 - 新增`CustomPrompt`参数，完全自定义系统提示词
-- 精简默认提示词 (2898 字符数→170 字符数)
+- 精简默认提示词 (2947 字符数→170 字符数)
 
 **日志**
 - 增加输入/输出 token，缓存命中/未命中，Token 速度，耗时
@@ -80,7 +81,7 @@
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | Model | | 模型名称 |
-| URL | | 接口网址。以`/v1`后缀则自动补全至`/v1/chat/completions` |
+| URL | | 接口网址。以`/v1`或`/v1/`后缀则自动补全至`/v1/chat/completions` |
 | APIKey | | 接口密钥 |
 | ModelParams | | 自定义模型参数，如：`{"temperature":0.3}` |
 | ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
@@ -95,3 +96,5 @@
 | ~~GameName~~ | 已移除 | ~~游戏名称~~ |
 | ~~GameDesc~~ | 已移除 | ~~游戏描述~~ |
 | ~~MaxWordCount~~ | 已移除 | ~~单批最大字符数~~ |
+| ~~Requirement~~ | 已移除 | ~~额外翻译需求/指令~~ |
+| ~~Interval~~ | 已移除 | ~~轮询间隔~~ |
