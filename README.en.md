@@ -39,6 +39,7 @@
 - Log level is now managed uniformly by `BepInEx.cfg`, output to `LogOutput.log`
 - Added `MaxContext` parameter for custom maximum context length
 - Added `CustomPrompt` parameter for fully customizable system prompts
+- Added `AutoGlossary` parameter for automatic glossary (model outputs terms alongside translations; terms are saved when conversation history is cleared)
 - Streamlined default prompt (2947 chars → 170 chars)
 
 **Logging**
@@ -89,6 +90,7 @@
 | MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text still exceeds, it is discarded and logged. |
 | MaxRetry | `5` | Maximum retry attempts |
 | CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt` |
+| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled: ① The model outputs new terms alongside translations ② The glossary is part of the system prompt; new terms accumulate with conversation history ③ New terms are merged to `GameRoot/BepInEx/config/AutoLLM_Glossary.txt` (JSON format) only when conversation history is cleared ④ You can edit `GameRoot/BepInEx/config/AutoLLM_CustomGlossaryPrompt.txt` to customize the glossary prompt |
 | HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
 | DisableSpamChecks | `True` | Whether to disable AutoTranslator framework spam checks |
 | ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |

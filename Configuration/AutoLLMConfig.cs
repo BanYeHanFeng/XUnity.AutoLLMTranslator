@@ -16,6 +16,7 @@ internal class AutoLLMConfig
     public int MaxContext { get; set; } = 4096;
     public int MaxRetry { get; set; } = 5;
     public bool CustomPrompt { get; set; } = false;
+    public bool AutoGlossary { get; set; } = false;
     public bool HalfWidth { get; set; } = true;
     public bool DisableSpamChecks { get; set; } = true;
     public string? BepInExRoot { get; set; }              // FindBepInExRoot 可能返回 null
@@ -23,6 +24,8 @@ internal class AutoLLMConfig
     public string? DestinationLanguage { get; set; }     // 框架提供，可能 null
     public Dictionary<string, object> ParsedModelParams { get; set; } = new Dictionary<string, object>();
     public string CachedSystemPrompt { get; set; } = null!;  // IsValid=true 时由 PromptManager.Build 设置
+    public string CachedGlossaryPrompt { get; set; } = "";   // AutoGlossary=true 时由 PromptManager.BuildGlossaryPrompt 设置（已替换占位符，不含术语表）
+    public string? GlossaryPath { get; set; }            // 术语表文件路径，AutoGlossary=true 时由 PromptManager 设置
 
     // 日志等级
     public bool InfoEnabled { get; set; } = true;
@@ -46,6 +49,7 @@ internal class AutoLLMConfig
         config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
         config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 5);
         config.CustomPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
+        config.AutoGlossary = context.GetOrCreateSetting("AutoLLM", "AutoGlossary", false);
         config.HalfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         config.DisableSpamChecks = context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true);
 
@@ -92,6 +96,10 @@ internal class AutoLLMConfig
 
         // 11. 构建并缓存系统提示词
         config.CachedSystemPrompt = PromptManager.Build(config);
+
+        // 12. 构建术语表提示词（仅 AutoGlossary=true 时生效，否则留空）
+        if (config.AutoGlossary)
+            config.CachedGlossaryPrompt = PromptManager.BuildGlossaryPrompt(config);
 
         return config;
     }

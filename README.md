@@ -39,6 +39,7 @@
 - 日志等级由`BepInEx.cfg`统一管理，统一输出到`LogOutput.log`
 - 新增`MaxContext`参数，自定义最大上下文长度
 - 新增`CustomPrompt`参数，完全自定义系统提示词
+- 新增`AutoGlossary`参数，自动术语表（翻译同时输出术语，历史清空时落盘）
 - 精简默认提示词 (2947 字符数→170 字符数)
 
 **日志**
@@ -88,6 +89,7 @@
 | MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按1 字符~0.75 token)。超限时分三种情况处理：① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
 | MaxRetry | `5` | 最大重试次数 |
 | CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt` |
+| AutoGlossary | `False` | 是否开启自动术语表。开启后：①模型在翻译同时输出新术语 ②术语表作为系统提示词的一部分，随对话历史累积新术语 ③仅在清空对话历史时将新术语合并到`游戏根目录/BepInEx/config/AutoLLM_Glossary.txt`(JSON格式) ④可编辑`游戏根目录/BepInEx/config/AutoLLM_CustomGlossaryPrompt.txt`自定义术语表提示词 |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
 | DisableSpamChecks | `True` | 是否禁用 AutoTranslator 框架垃圾检查 |
 | ~~LogLevel~~ | 已移除 | ~~日志等级~~。由`BepInEx.cfg`控制 |

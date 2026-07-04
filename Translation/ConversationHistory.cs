@@ -55,16 +55,31 @@ internal class ConversationHistory
         Logger.Debug("Token 估算: 系统提示词=" + _systemPromptTokens + " tokens (字符=" + prompt.Length + "×0.75)");
     }
 
+    /// <summary>
+    /// 更新系统提示词及其 token 估算（术语表合并后系统提示词变长时调用）。
+    /// 会重置历史并基于新系统提示词重新计算基线 token。
+    /// </summary>
+    public void UpdateSystemPrompt(string prompt)
+    {
+        lock (_lock)
+        {
+            _systemPromptTokens = prompt.Length * 3 / 4;
+            _history.Clear();
+            _totalContextTokens = _systemPromptTokens;
+        }
+        Logger.Debug("Token 估算更新: 系统提示词=" + _systemPromptTokens + " tokens (字符=" + prompt.Length + "×0.75)");
+    }
+
     /// <summary>估算纯文本的 token 数（0.75 字符/token）。</summary>
     public int EstimateTokens(string text)
     {
         return text.Length * 3 / 4;
     }
 
-    /// <summary>检查上下文是否超限，超限则清空历史。</summary>
-    public void CheckAndClearIfOverLimit()
+    /// <summary>检查上下文是否超限，超限则清空历史。返回 true 表示触发了清空。</summary>
+    public bool CheckAndClearIfOverLimit()
     {
-        if (MaxContext <= 0 || !Enabled) return;
+        if (MaxContext <= 0 || !Enabled) return false;
         lock (_lock)
         {
             if (_totalContextTokens > MaxContext)
@@ -74,12 +89,18 @@ internal class ConversationHistory
                 _totalContextTokens = _systemPromptTokens;
                 _clearCount++;
                 Logger.Info("历史清空: tokens=" + oldTokens + " 超过最大上下文(" + MaxContext + "), 清空次数=" + _clearCount);
+                // Debug 日志加守卫，避免在 Debug 关闭时无谓构造字符串
+                if (Logger.IsDebugEnabled)
+                {
+                    Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
+                }
+                return true;
             }
-            // Debug 日志加守卫，避免在 Debug 关闭时无谓构造字符串
             if (Logger.IsDebugEnabled)
             {
                 Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
             }
+            return false;
         }
     }
 
@@ -136,8 +157,8 @@ internal class ConversationHistory
         }
     }
 
-    /// <summary>强制清空历史（上下文接近上限但未触发自动清空时调用）。</summary>
-    public void ClearHistory()
+    /// <summary>强制清空历史（上下文接近上限但未触发自动清空时调用）。返回 true（始终清空）。</summary>
+    public bool ClearHistory()
     {
         lock (_lock)
         {
@@ -147,5 +168,6 @@ internal class ConversationHistory
             _clearCount++;
             Logger.Info("历史清空: tokens=" + oldTokens + " 已接近上限(" + MaxContext + "), 清空次数=" + _clearCount);
         }
+        return true;
     }
 }

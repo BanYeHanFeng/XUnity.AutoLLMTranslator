@@ -15,6 +15,7 @@ internal class TranslationOrchestrator
     private readonly RateLimitGuard _rateLimitGuard;
     private readonly ConversationHistory _history;
     private readonly ILlmClient _llmClient;
+    private readonly GlossaryManager? _glossary;
 
     private volatile bool _shutdownRequested;
     private volatile int _processingCount;
@@ -43,7 +44,19 @@ internal class TranslationOrchestrator
             Enabled = config.ParallelCount <= 1,
             MaxContext = config.MaxContext
         };
-        _history.InitSystemPrompt(config.CachedSystemPrompt);
+
+        // 术语表管理器（AutoGlossary=true 时启用）
+        if (config.AutoGlossary)
+        {
+            _glossary = new GlossaryManager(config.GlossaryPath);
+            // 术语表模式使用合并术语表后的系统提示词作为缓存基线
+            var fullPrompt = _glossary.BuildSystemPrompt(config.CachedGlossaryPrompt);
+            _history.InitSystemPrompt(fullPrompt);
+        }
+        else
+        {
+            _history.InitSystemPrompt(config.CachedSystemPrompt);
+        }
     }
 
     // ---- 公开方法 ----
@@ -99,7 +112,11 @@ internal class TranslationOrchestrator
                 break;
 
             // 2. 历史超限检查（token 精准判断）
-            _history.CheckAndClearIfOverLimit();
+            if (_history.CheckAndClearIfOverLimit())
+            {
+                // 历史清空 → 合并本轮新术语到文件并更新系统提示词
+                OnHistoryCleared();
+            }
 
             // 3. Token 感知任务选择（复杂超限处理封装在 SelectBatch 内）
             List<TranslationTask> batch, overflow;
@@ -182,6 +199,7 @@ internal class TranslationOrchestrator
             Logger.Info("上下文接近上限(" + estimatedTotal + "/" + _config.MaxContext + "), " +
                 "清空历史以容纳新任务 | 文本估算" + taskEstimate + " tokens");
             _history.ClearHistory();
+            OnHistoryCleared();
             estimatedTotal = _history.TotalContextTokens;
             batch.Add(task);
             estimatedTotal += taskEstimate;
@@ -207,8 +225,11 @@ internal class TranslationOrchestrator
             // 构建用户输入 JSON
             string inputJson = BuildInputJson(texts);
 
-            // 构建消息
-            var messages = _history.BuildMessages(_config.CachedSystemPrompt, inputJson);
+            // 构建消息：术语表模式使用含术语表的系统提示词，否则用默认
+            string systemPrompt = _config.AutoGlossary && _glossary != null
+                ? _glossary.BuildSystemPrompt(_config.CachedGlossaryPrompt)
+                : _config.CachedSystemPrompt;
+            var messages = _history.BuildMessages(systemPrompt, inputJson);
 
             // ---- 批次开始（Debug） ----
             if (Logger.IsDebugEnabled)
@@ -276,9 +297,25 @@ internal class TranslationOrchestrator
             if (resultObj == null || resultObj.Count == 0)
                 throw new Exception("JSON结果解析失败: " + result.FullResponse);
 
-            // 分发结果
+            // 分发结果：术语表模式用 translations 嵌套结构，否则用扁平数字 key
+            Dictionary<string, object>? translationsObj = null;
+            Dictionary<string, object>? glossaryObj = null;
+            if (_config.AutoGlossary && resultObj.TryGetValue("translations", out object? tObj)
+                && tObj is Dictionary<string, object> tDict)
+            {
+                translationsObj = tDict;
+                if (resultObj.TryGetValue("glossary", out object? gObj)
+                    && gObj is Dictionary<string, object> gDict)
+                    glossaryObj = gDict;
+            }
+            else
+            {
+                // 非术语表模式：整个对象就是译文映射
+                translationsObj = resultObj;
+            }
+
             int completed = 0;
-            foreach (var kvp in resultObj)
+            foreach (var kvp in translationsObj)
             {
                 int index;
                 if (!int.TryParse(kvp.Key, out index)) continue;
@@ -294,6 +331,12 @@ internal class TranslationOrchestrator
 
                 batch[index - 1].MarkCompleted(translated);
                 completed++;
+            }
+
+            // 术语表模式：收集本轮新术语（暂存内存，历史清空时落盘）
+            if (_config.AutoGlossary && _glossary != null && glossaryObj != null)
+            {
+                _glossary.AddPendingTerms(glossaryObj);
             }
 
             if (completed == batch.Count)
@@ -402,6 +445,24 @@ internal class TranslationOrchestrator
     }
 
     // ---- 辅助 ----
+
+    /// <summary>
+    /// 历史清空后的术语表维护：
+    /// 1. 将本轮收集的新术语合并到文件
+    /// 2. 用合并后的术语表重建系统提示词并更新 token 估算
+    /// 仅在 AutoGlossary=true 时有实际效果。
+    /// </summary>
+    private void OnHistoryCleared()
+    {
+        if (!_config.AutoGlossary || _glossary == null) return;
+        int added = _glossary.MergePendingAndSave();
+        if (added > 0)
+        {
+            // 术语表变化 → 系统提示词变长 → 更新基线 token 估算
+            var fullPrompt = _glossary.BuildSystemPrompt(_config.CachedGlossaryPrompt);
+            _history.UpdateSystemPrompt(fullPrompt);
+        }
+    }
 
     /// <summary>截断文本用于日志输出，避免打印超长内容。</summary>
     private static string Truncate(string text, int maxLen)
