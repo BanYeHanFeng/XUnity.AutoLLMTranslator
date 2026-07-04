@@ -26,7 +26,7 @@ XUnity.AutoLLMTranslator/
 │   └── AutoLLMTranslateEndpoint.cs   # 框架适配层：实现 ITranslateEndpoint，协程等待
 ├── Configuration/
 │   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理
-│   └── PromptManager.cs              # 系统提示词构建（默认/自定义 .txt，含术语表提示词）
+│   └── PromptManager.cs              # 系统提示词构建：单文件 AutoLLM_CustomPrompt.txt 含分隔符的两节（普通模式/术语表模式）
 ├── Models/
 │   ├── LlmModels.cs                  # 数据模型：LlmMessage, LlmResult, LlmUsage
 │   └── TranslationTask.cs            # 翻译任务实体 + 状态机
@@ -39,7 +39,7 @@ XUnity.AutoLLMTranslator/
 │   ├── ILlmClient.cs                 # LLM 客户端接口（便于测试替换）
 │   ├── LlmClient.cs                  # LLM API 客户端：HttpWebRequest + SSE 流解析
 │   ├── ConversationHistory.cs        # 对话历史管理（线程安全，chars×0.75 估算 + API 精确追踪）
-│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空时落盘）
+│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空/批次成功时落盘）
 ├── Prompt.cs                         # 默认系统提示词常量（Default + Glossary 两套）
 ├── SimpleJson.cs                     # 零依赖 JSON 序列化/解析器
 ├── Logger.cs                         # 日志封装（委托给 XuaLogger.Common）
@@ -91,7 +91,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 接口 | 实现 `ITranslateEndpoint`（dev 分支新架构，不再通过 HTTP 代理） |
 | `Id` | `"AutoLLMTranslate"`，框架通过此 ID 绑定端点 |
 | `MaxTranslationsPerRequest=1` | 框架每次传 1 条，内部批量合并 |
-| `MaxConcurrency=500` | 高标记，实际并发由 `ParallelCount` 控制 |
+| `MaxConcurrency=500` | 高标记，实际并发固定为 1（`ParallelCount` 已废弃） |
 | `Initialize()` | 读取配置 → 验证 → 创建 `TranslationOrchestrator` → `Start()` |
 | `Translate()` | 协程方法：创建 `TranslationTask` → 入队 → `yield return null` 轮询完成 |
 | `Dispose()` | 调用 `_orchestrator.Shutdown()` |
@@ -101,9 +101,9 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 要点 | 说明 |
 |---|---|
 | 配置来源 | `IInitializationContext.GetOrCreateSetting("AutoLLM", key, default)` |
-| 配置项 | Model, URL, APIKey, ParallelCount(1), MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt, HalfWidth(true), DisableSpamChecks(true) |
+| 配置项 | Model, URL, APIKey, MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt, HalfWidth(true), DisableSpamChecks(true) |
 | URL 补全 | `/v1` → `/v1/chat/completions`，`/v1/` → `/v1/chat/completions` |
-| ThreadPool | 确保最小线程数 ≥ ParallelCount+2 |
+| ThreadPool | 确保最小线程数 ≥ ParallelCount+2（=3，ParallelCount 已固定为 1） |
 | 系统提示词 | 初始化时通过 `PromptManager.Build()` 预构建并缓存到 `CachedSystemPrompt` |
 | 日志等级 | 从 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` 和 `[Logging.Disk]` 联合读取 |
 | BepInEx 定位 | 从 TranslatorDirectory 向上查找（含 `core/` 子目录 或 目录名为 `BepInEx`） |
@@ -112,12 +112,13 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 
 | 要点 | 说明 |
 |---|---|
-| `Build(config)` | 根据 `CustomPrompt` 决定使用默认提示词还是读取 `AutoLLM_CustomPrompt.txt` |
-| `BuildGlossaryPrompt(config)` | 构建术语表模式提示词，读取 `AutoLLM_CustomGlossaryPrompt.txt`，设置 `config.GlossaryPath`，保留 `{{GLOSSARY}}` 占位符 |
-| 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt` 与 `AutoLLM_CustomGlossaryPrompt.txt`（两套独立） |
+| `Build(config)` | 根据 `CustomPrompt` 决定使用默认提示词还是从单一文件 `AutoLLM_CustomPrompt.txt` 读取【普通模式分节】 |
+| `BuildGlossaryPrompt(config)` | 构建术语表模式提示词，从同一文件读取【术语表模式分节】，设置 `config.GlossaryPath`，保留 `{{GLOSSARY}}` 占位符 |
+| 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt`（单一文件，含分隔符的两节） |
+| 文件分隔符 | 常量 `PromptManager.SectionSeparator`：分隔符行之上为普通模式段，之下为术语表模式段 |
 | 占位符替换 | `{{SOURCE_LAN}}` → 源语言，`{{TARGET_LAN}}` → 目标语言；`{{GLOSSARY}}` 由 GlossaryManager 运行时填充 |
-| 首次开启 | 自动创建默认模板文件，方便用户修改 |
-| `LoadPromptFile()` | 通用加载逻辑：customPrompt=false 用默认，true 时读取/创建自定义文件 |
+| 首次开启 | 自动创建含两套默认提示词（用 `SectionSeparator` 分节）的模板文件，方便用户修改 |
+| `LoadPromptSection()` | 通用加载逻辑：customPrompt=false 用默认，true 时按 `wantGlossary` 选取对应分节（找不到分隔符的旧文件会回退/警告） |
 
 ### 4. `Models/LlmModels.cs`（25 行）
 
@@ -149,7 +150,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `ProcessBatch()` | 批次翻译核心流程（见下） |
 | `BuildInputJson()` | 构建 `{"1":"原文1","2":"原文2"}` 格式 JSON |
 | `HalfWidthRegex` | 静态编译正则，全角符号 `[！-～]` 转半角（偏移 `0xFEE0`） |
-| `OnHistoryCleared()` | 历史清空后合并术语表到文件 + 更新系统提示词 token 估算（仅 AutoGlossary） |
+| `OnHistoryCleared()` | 历史清空后合并术语表到文件 + 更新系统提示词 token 估算（仅 AutoGlossary，ParallelCount 已固定为 1） |
 | Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens` |
 
 **ProcessBatch 流程**：
@@ -157,7 +158,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 2. 构建系统提示词：AutoGlossary 时用 `GlossaryManager.BuildSystemPrompt()`（含术语表），否则用 `CachedSystemPrompt`
 3. `_history.BuildMessages()` 组装 [system, ...history, user]
 4. `_llmClient.Translate()` 同步阻塞调用（net35 限制）
-5. 成功：`_rateLimitGuard.Reset()`，解析 JSON 结果（AutoGlossary 用 `translations`+`glossary` 嵌套），全角转半角，分发译文，`AddPendingTerms` 收集新术语，`RecordApiUsage` + `RecordExchange`
+5. 成功：`_rateLimitGuard.Reset()`，解析 JSON 结果（AutoGlossary 用 `translations`+`glossary` 嵌套），全角转半角，分发译文，`AddPendingTerms` 收集新术语（落盘统一走 `OnHistoryCleared`，避免每批文件 I/O），`RecordApiUsage` + `RecordExchange`
 6. 失败(429)：`_rateLimitGuard.OnRateLimited()`，`ReEnqueue`（不消耗重试次数）
 7. 失败(其他)：`_retryHandler.ShouldRetry()` → IncrementRetry → ReEnqueue，超限则 MarkFailed
 
@@ -217,7 +218,7 @@ LlmResult Translate(string url, string apiKey, string model,
 | 要点 | 说明 |
 |---|---|
 | 线程安全 | `lock(_lock)` 保护所有读写 |
-| 开关 | `Enabled` 属性，`ParallelCount > 1` 时自动禁用（防止并发交错） |
+| 开关 | `Enabled` 属性，ParallelCount 已废弃固定为 1，对话历史始终启用 |
 | Token 估算 | `chars × 0.75`（整数运算）；API 返回 usage 后切换为精确模式 |
 | 超限清空 | `CheckAndClearIfOverLimit()` 返回 bool 表示是否触发清空（供 Orchestrator 触发术语表合并） |
 | `ClearHistory()` | 主动清空，返回 bool（始终 true） |
@@ -240,7 +241,7 @@ LlmResult Translate(string url, string apiKey, string model,
 | `BuildSystemPrompt()` | 将术语表内容填入模板的 `{{GLOSSARY}}` 占位符，返回完整系统提示词 |
 | `AddPendingTerms()` | 收集模型响应中的 glossary 到内存缓冲 `_pendingNew`（不立即写文件） |
 | `MergePendingAndSave()` | 将缓冲新术语合并到 `_glossary` 并写入文件，返回新增条目数 |
-| 落盘时机 | 由 Orchestrator 在对话历史清空时调用 `MergePendingAndSave()` |
+| 落盘时机 | 由 Orchestrator 调用 `MergePendingAndSave()`：ParallelCount 已固定为 1，在对话历史清空时调用（`OnHistoryCleared`），避免每批文件 I/O |
 | 首次运行 | 自动创建空 `{}` 文件 |
 
 ### 14. `Prompt.cs`
@@ -308,18 +309,18 @@ LlmResult Translate(string url, string apiKey, string model,
 ### 配置约定
 
 1. URL 自动补 `/v1/chat/completions`
-2. `ParallelCount > 1` 时 `ConversationHistory.Enabled = false`
+2. `ParallelCount > 1` 路径已废弃：`ConversationHistory.Enabled` 固定为 true
 3. `DisableSpamChecks` 默认 true（减少误关）
 4. `HalfWidth` 默认 true（全角符号转半角）
 5. 日志等级从 BepInEx 配置读取，非独立控制
 6. `MaxContext` 双重角色：控制对话历史上限 + 单批次 token 上限
-7. `AutoGlossary` 与 `CustomPrompt` 独立：CustomPrompt 控制普通提示词文件，AutoGlossary 控制术语表提示词文件（两套独立开关、独立文件）
+7. `AutoGlossary` 与 `CustomPrompt` 独立：CustomPrompt 控制单一自定义提示词文件 `AutoLLM_CustomPrompt.txt`（含分隔符的两节），AutoGlossary 控制从该文件读取哪一节（普通/术语表）；两套开关独立
 
 ### 术语表约定
 
 1. **术语表文件**：`{BepInExRoot}/config/AutoLLM_Glossary.txt`，JSON 格式 `{"原文":"译文"}`
 2. **术语表位置**：作为系统提示词的一部分（拼接到 `{{GLOSSARY}}` 占位符后），不作为独立 system 消息——保持缓存前缀稳定
-3. **更新时机**：仅在对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）将本轮收集的新术语合并落盘
+3. **更新时机**：ParallelCount 固定为 1，仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）合并落盘
 4. **新术语缓冲**：ProcessBatch 解析响应 glossary 字段时存入内存 `_pendingNew`，不立即写文件
 5. **向后兼容**：`AutoGlossary=false` 时模型输出 `{"1":"译文"}` 扁平结构；`AutoGlossary=true` 时输出 `{"translations":{"1":"译文"},"glossary":{...}}` 嵌套结构
 6. **Token 估算**：术语表合并后系统提示词变长，`ConversationHistory.UpdateSystemPrompt()` 重置基线 token

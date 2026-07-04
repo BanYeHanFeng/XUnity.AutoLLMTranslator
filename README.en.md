@@ -13,7 +13,7 @@
 ## Major Changes Compared to Upstream
 **Architecture Refactoring**
 - Removed the HTTP proxy layer, reducing overhead
-- Split single module into multiple files, reducing maintenance burden
+- Split single file into multiple files, reducing maintenance burden
 
 **Event-Driven Scheduling**
 - Event wake-up + 50ms fallback polling, reducing latency
@@ -21,25 +21,20 @@
 **JSON Output Mode**
 - Configure parameters required for JSON output mode. If the model supports 100% JSON output, this solves parsing issues caused by the model occasionally outputting incorrect formats.
 
-**Conversation History & Caching**
-- Uses conversation history for repeated translations, improving cache hit rate and reducing costs
-- Automatically disables conversation history during parallel translation to prevent cache prefix modification from significantly degrading cache hit rate and translation quality
-
-**Parallelism & Batching**
-- `ParallelCount` controls the number of parallel translations; when fully occupied, tasks automatically queue up
-- During queuing, multiple short texts are automatically merged into a single batch
+**Conversation History**
+- Uses conversation history for repeated translations, improving cache hit rate and reducing translation costs
 
 **Rate Limit Backoff**
 - API rate limiting (429) triggers automatic exponential backoff (5s→10s→20s→40s→60s)
 - Does not consume retry attempts
 
 **Configuration Changes**
-- Removed `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval`
+- Removed `LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval` `ParallelCount`
 - Removed multi-key load balancing; `APIKey` no longer supports `;`-separated round-robin
 - Log level is now managed uniformly by `BepInEx.cfg`, output to `LogOutput.log`
 - Added `MaxContext` parameter for custom maximum context length
 - Added `CustomPrompt` parameter for fully customizable system prompts
-- Added `AutoGlossary` parameter for automatic glossary (model outputs terms alongside translations; terms are saved when conversation history is cleared)
+- Added `AutoGlossary` parameter for automatic glossary (model outputs terms alongside translations)
 - Streamlined default prompt (2947 chars → 170 chars)
 
 **Logging**
@@ -86,11 +81,10 @@
 | URL | | API endpoint. If suffixed with `/v1` or `/v1/`, it is auto-completed to `/v1/chat/completions` |
 | APIKey | | API key |
 | ModelParams | | Custom model parameters, e.g., `{"temperature":0.3}` |
-| ParallelCount | `1` | Number of parallel translations. When >1, conversation history is disabled. When concurrency is full, tasks queue up; during queuing, multiple short texts are automatically merged into one batch. |
-| MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text still exceeds, it is discarded and logged. |
+| MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text still exceeds, it is discarded and logged |
 | MaxRetry | `5` | Maximum retry attempts |
-| CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt` |
-| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled: ① The model outputs new terms alongside translations ② The glossary is part of the system prompt; new terms accumulate with conversation history ③ New terms are merged to `GameRoot/BepInEx/config/AutoLLM_Glossary.txt` (JSON format) only when conversation history is cleared ④ You can edit `GameRoot/BepInEx/config/AutoLLM_CustomGlossaryPrompt.txt` to customize the glossary prompt |
+| CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt`, which contains two sets of prompts: ① Normal system prompt ② System prompt for when automatic glossary is enabled |
+| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_Glossary.txt`. ① The model outputs new terms alongside translations ② Glossary is injected via placeholder ③ New terms are merged after conversation history is cleared |
 | HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
 | DisableSpamChecks | `True` | Whether to disable AutoTranslator framework spam checks |
 | ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |
@@ -101,3 +95,4 @@
 | ~~MaxWordCount~~ | Removed | ~~Max characters per batch~~ |
 | ~~Requirement~~ | Removed | ~~Extra translation requirements/instructions~~ |
 | ~~Interval~~ | Removed | ~~Polling interval~~ |
+| ~~ParallelCount~~ | Removed | ~~Parallel translation count~~ |

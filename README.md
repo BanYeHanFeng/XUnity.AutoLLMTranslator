@@ -13,7 +13,7 @@
 ## 相对于上游的主要改动
 **架构重构**
 - 移除 HTTP 代理层，减少开销
-- 单模块拆分多个文件，减少维护压力
+- 单文件拆分多个文件，减少维护压力
 
 **事件驱动调度**
 - 事件唤醒 + 50ms 保底轮询，降低延迟
@@ -21,25 +21,20 @@
 **JSON 输出模式**
 - 设置 JSON 输出模式所需要的参数，如模型支持 100%JSON 输出下，解决模型有概率输出错误格式带来的解析问题
 
-**对话历史与缓存**
+**对话历史**
 - 历史翻译使用对话历史，提升缓存命中率，降低历史翻译费用
-- 多并行翻译时自动禁用对话历史，避免缓存前缀被修改导致缓存命中率大幅下降，会影响翻译质量
-
-**并行与合并**
-- `ParallelCount`控制翻译并行数，并行占满时自动排队等待
-- 排队期间，多条短文本自动合并成一个批次
 
 **限速退避**
 - API 限速 (429) 自动指数退避 (5s→10s→20s→40s→60s)
 - 不消耗重试次数
 
 **配置变更**
-- 移除`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval`
+- 移除`LogLevel` `Log2File` `Terminology` `GameName` `GameDesc` `MaxWordCount` `Requirement` `Interval` `ParallelCount`
 - 移除多 Key 负载均衡，`APIKey` 不再支持 `;` 分割轮询
 - 日志等级由`BepInEx.cfg`统一管理，统一输出到`LogOutput.log`
 - 新增`MaxContext`参数，自定义最大上下文长度
 - 新增`CustomPrompt`参数，完全自定义系统提示词
-- 新增`AutoGlossary`参数，自动术语表（翻译同时输出术语，历史清空时落盘）
+- 新增`AutoGlossary`参数，模型输出译文时额外输出术语
 - 精简默认提示词 (2947 字符数→170 字符数)
 
 **日志**
@@ -85,18 +80,18 @@
 | URL | | 接口网址。以`/v1`或`/v1/`后缀则自动补全至`/v1/chat/completions` |
 | APIKey | | 接口密钥 |
 | ModelParams | | 自定义模型参数，如：`{"temperature":0.3}` |
-| ParallelCount | `1` | 并行翻译数。>1 时禁用对话历史，并发满后进行排队，排队期间，多条短文本自动合并成一个批次|
-| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按1 字符~0.75 token)。超限时分三种情况处理：① 清空对话历史 ② 超出部分分配到下一批 ③ 单条仍超出则丢弃并记录日志 |
+| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按 1 字符~ 0.75 token)。超限时分三种情况处理：①清空对话历史 ②超出部分分配到下一批 ③单条仍超出则丢弃并记录日志 |
 | MaxRetry | `5` | 最大重试次数 |
-| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt` |
-| AutoGlossary | `False` | 是否开启自动术语表。开启后：①模型在翻译同时输出新术语 ②术语表作为系统提示词的一部分，随对话历史累积新术语 ③仅在清空对话历史时将新术语合并到`游戏根目录/BepInEx/config/AutoLLM_Glossary.txt`(JSON格式) ④可编辑`游戏根目录/BepInEx/config/AutoLLM_CustomGlossaryPrompt.txt`自定义术语表提示词 |
+| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt`，有两套提示词，①是普通系统提示词，②是开启自动术语表后的系统提示词|
+| AutoGlossary | `False` | 是否开启自动术语表，开启后 配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_Glossary.txt`，①模型在翻译同时输出新术语 ②术语表通过占位符的方式进行注入，③等待历史对话清空后注入新的术语 |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
 | DisableSpamChecks | `True` | 是否禁用 AutoTranslator 框架垃圾检查 |
-| ~~LogLevel~~ | 已移除 | ~~日志等级~~。由`BepInEx.cfg`控制 |
-| ~~Log2File~~ | 已移除 | ~~日志输出文件~~。统一输出`LogOutput.log` |
+| ~~LogLevel~~ | 已移除 | ~~日志等级~~，由`BepInEx.cfg`控制 |
+| ~~Log2File~~ | 已移除 | ~~日志输出文件~~，统一输出`LogOutput.log` |
 | ~~Terminology~~ | 已移除 | ~~术语表~~ |
 | ~~GameName~~ | 已移除 | ~~游戏名称~~ |
 | ~~GameDesc~~ | 已移除 | ~~游戏描述~~ |
 | ~~MaxWordCount~~ | 已移除 | ~~单批最大字符数~~ |
 | ~~Requirement~~ | 已移除 | ~~额外翻译需求/指令~~ |
 | ~~Interval~~ | 已移除 | ~~轮询间隔~~ |
+| ~~ParallelCount~~ | 已移除 | ~~并行翻译数~~|
