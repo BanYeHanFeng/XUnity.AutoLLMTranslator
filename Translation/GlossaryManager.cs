@@ -68,7 +68,8 @@ internal class GlossaryManager
 
     /// <summary>
     /// 将 pending 新术语合并到文件并重载。
-    /// 在对话历史清空时调用：历史清空意味着上下文重置，此时把本轮收集的术语落盘。
+    /// 在对话历史清空时调用：历史清空意味着上下文重置，此时把本轮收集的术语落盘
+    /// （ParallelCount 已废弃固定为 1，本方法是唯一落盘路径，避免每批都做文件 I/O）。
     /// 返回新增条目数（含更新）。
     /// </summary>
     public int MergePendingAndSave()

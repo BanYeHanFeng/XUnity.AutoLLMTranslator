@@ -12,7 +12,8 @@ internal class AutoLLMConfig
     public string Url { get; set; } = "";
     public string ApiKey { get; set; } = "";
     public string ModelParams { get; set; } = "";
-    public int ParallelCount { get; set; } = 1;
+    // ParallelCount 已废弃：固定单并发，以保留对话历史与术语表落盘的稳定语义。
+    public const int ParallelCount = 1;
     public int MaxContext { get; set; } = 4096;
     public int MaxRetry { get; set; } = 5;
     public bool CustomPrompt { get; set; } = false;
@@ -45,7 +46,7 @@ internal class AutoLLMConfig
         config.Url = context.GetOrCreateSetting("AutoLLM", "URL", "") ?? "";
         config.ApiKey = context.GetOrCreateSetting("AutoLLM", "APIKey", "") ?? "";
         config.ModelParams = context.GetOrCreateSetting("AutoLLM", "ModelParams", "") ?? "";
-        config.ParallelCount = context.GetOrCreateSetting("AutoLLM", "ParallelCount", 1);
+        // ParallelCount 已废弃：不再读取配置，固定为 1（见常量定义）。
         config.MaxContext = context.GetOrCreateSetting("AutoLLM", "MaxContext", 4096);
         config.MaxRetry = context.GetOrCreateSetting("AutoLLM", "MaxRetry", 5);
         config.CustomPrompt = context.GetOrCreateSetting("AutoLLM", "CustomPrompt", false);
@@ -70,7 +71,7 @@ internal class AutoLLMConfig
             context.DisableSpamChecks();
 
         // 6. ServicePointManager 配置
-        ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, config.ParallelCount * 2);
+        ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, AutoLLMConfig.ParallelCount * 2);
         ServicePointManager.Expect100Continue = false;
 
         // 7. URL 自动补尾（两种结尾互斥，用 else if 表达语义）
@@ -90,7 +91,7 @@ internal class AutoLLMConfig
         // 10. ThreadPool 扩容
         int minWorker, minIo;
         ThreadPool.GetMinThreads(out minWorker, out minIo);
-        int needed = config.ParallelCount + 2;
+        int needed = AutoLLMConfig.ParallelCount + 2;
         if (minWorker < needed || minIo < needed)
             ThreadPool.SetMinThreads(Math.Max(minWorker, needed), Math.Max(minIo, needed));
 

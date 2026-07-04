@@ -41,7 +41,7 @@ internal class TranslationOrchestrator
         _rateLimitGuard = new RateLimitGuard();
         _history = new ConversationHistory
         {
-            Enabled = config.ParallelCount <= 1,
+            Enabled = true,   // ParallelCount 已废弃固定为 1，对话历史始终启用
             MaxContext = config.MaxContext
         };
 
@@ -88,8 +88,8 @@ internal class TranslationOrchestrator
             if (_rateLimitGuard.IsBlocked())
                 continue;
 
-            // 并发控制
-            if (_processingCount >= _config.ParallelCount)
+            // 并发控制（ParallelCount 已废弃，固定单并发）
+            if (_processingCount >= AutoLLMConfig.ParallelCount)
                 continue;
 
             // 积压告警
@@ -104,7 +104,7 @@ internal class TranslationOrchestrator
 
     private void DispatchBatches()
     {
-        while (_processingCount < _config.ParallelCount)
+        while (_processingCount < AutoLLMConfig.ParallelCount)
         {
             // 1. 取出所有兼容任务（无字符上限）
             var pending = _taskQueue.DequeueAll();
@@ -241,8 +241,7 @@ internal class TranslationOrchestrator
                 Logger.Debug(
                     "批次 " + batchId + ": 选取" + batch.Count + "条(" + totalChars + "字符) | " +
                     "上下文" + ctxTokens + "/" + _config.MaxContext + " | " +
-                    "排队" + waitMs + "毫秒 历史" + _history.TurnCount + "轮 并行" +
-                    _processingCount + "/" + _config.ParallelCount);
+                    "排队" + waitMs + "毫秒 历史" + _history.TurnCount + "轮");
             }
 
             // 同步调用 LLM（阻塞 ThreadPool 线程，net35 下无可避免）
@@ -333,7 +332,9 @@ internal class TranslationOrchestrator
                 completed++;
             }
 
-            // 术语表模式：收集本轮新术语（暂存内存，历史清空时落盘）
+            // 术语表模式：收集本轮新术语（暂存内存）
+            // ParallelCount 已废弃固定为 1，落盘统一走对话历史清空路径(OnHistoryCleared)，
+            // 避免每批都做文件 I/O。
             if (_config.AutoGlossary && _glossary != null && glossaryObj != null)
             {
                 _glossary.AddPendingTerms(glossaryObj);
@@ -449,8 +450,8 @@ internal class TranslationOrchestrator
     /// <summary>
     /// 历史清空后的术语表维护：
     /// 1. 将本轮收集的新术语合并到文件
-    /// 2. 用合并后的术语表重建系统提示词并更新 token 估算
-    /// 仅在 AutoGlossary=true 时有实际效果。
+    /// 2. 用合并后的术语表重建系统提示词并更新 token 估算基线
+    /// ParallelCount 已废弃固定为 1，对话历史始终启用，故本方法为唯一落盘路径。
     /// </summary>
     private void OnHistoryCleared()
     {

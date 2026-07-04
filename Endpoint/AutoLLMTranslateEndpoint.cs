@@ -38,7 +38,7 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
             _initialized = true;
 
             Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
-                " 最大上下文=" + config.MaxContext + " 并行=" + config.ParallelCount);
+                " 最大上下文=" + config.MaxContext);
         }
         catch (Exception ex)
         {
