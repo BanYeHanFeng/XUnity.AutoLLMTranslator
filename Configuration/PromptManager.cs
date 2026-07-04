@@ -6,18 +6,30 @@ using System.Text;
 internal static class PromptManager
 {
     /// <summary>
-    /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的系统提示词（行尾已归一化为 LF）。
-    /// config.CachedSystemPrompt 应存储此返回值。
+    /// 自定义提示词文件中的分节分隔符。
+    /// 文件被此分隔符划分为两节：
+    ///   - 分隔符之前：普通模式（AutoGlossary=false 时使用）
+    ///   - 分隔符之后：术语表模式（AutoGlossary=true 时使用，应含 {{GLOSSARY}} 占位符）
+    /// 首次创建模板文件时，分隔符两侧分别写入 Prompt.Default 与 Prompt.Glossary。
+    /// </summary>
+    public const string SectionSeparator =
+        "# ===== AutoLLM.AutoGlossary=true 以下为术语表模式提示词（其上为普通模式） =====";
+
+    /// <summary>自定义提示词单一文件名。</summary>
+    private const string CustomPromptFileName = "AutoLLM_CustomPrompt.txt";
+
+    /// <summary>术语表数据文件名。</summary>
+    private const string GlossaryFileName = "AutoLLM_Glossary.txt";
+
+    /// <summary>
+    /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的【普通模式】系统提示词（不含 {{GLOSSARY}} 占位符）。
+    /// 行尾归一化为 LF。config.CachedSystemPrompt 应存储此返回值。
+    /// CustomPrompt=false 时直接使用 Prompt.Default。
     /// </summary>
     public static string Build(AutoLLMConfig config)
     {
-        string basePrompt = LoadPromptFile(config, customPrompt: config.CustomPrompt,
-            defaultPrompt: Prompt.Default, customFileName: "AutoLLM_CustomPrompt.txt",
-            label: "系统提示词");
+        string basePrompt = LoadPromptSection(config, wantGlossary: false, defaultPrompt: Prompt.Default);
 
-        // 统一行尾为 LF：避免 Windows(CRLF)/Linux(LF) 构建产物字符串长度漂移，
-        // 同时使 token 估算（chars×0.75）跨平台一致。
-        // 必须在日志输出长度之前完成，否则日志显示的字符数与实际字符串不一致。
         basePrompt = NormalizeLineEndings(basePrompt);
         Logger.Info("系统提示词: " + basePrompt.Length + " 字符");
 
@@ -27,16 +39,14 @@ internal static class PromptManager
     }
 
     /// <summary>
-    /// 构建术语表模式系统提示词（已替换语言占位符，保留 {{GLOSSARY}} 占位符待运行时填充）。
-    /// 仅在 config.AutoGlossary=true 时调用。同时设置 config.GlossaryPath。
+    /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的【术语表模式】系统提示词模板。
+    /// 保留 {{GLOSSARY}} 占位符，由 GlossaryManager 在运行时填充。
+    /// 仅在 config.AutoGlossary=true 时调用；同时设置 config.GlossaryPath。
+    /// CustomPrompt=false 时直接使用 Prompt.Glossary。
     /// </summary>
     public static string BuildGlossaryPrompt(AutoLLMConfig config)
     {
-        // 自定义术语表提示词使用独立文件 AutoLLM_CustomGlossaryPrompt.txt
-        // CustomPrompt 开关不影响术语表提示词，两者独立控制
-        string basePrompt = LoadPromptFile(config, customPrompt: true,
-            defaultPrompt: Prompt.Glossary, customFileName: "AutoLLM_CustomGlossaryPrompt.txt",
-            label: "术语表提示词");
+        string basePrompt = LoadPromptSection(config, wantGlossary: true, defaultPrompt: Prompt.Glossary);
 
         basePrompt = NormalizeLineEndings(basePrompt);
         Logger.Info("术语表提示词: " + basePrompt.Length + " 字符");
@@ -45,7 +55,7 @@ internal static class PromptManager
         if (!string.IsNullOrEmpty(config.BepInExRoot))
         {
             config.GlossaryPath = Path.Combine(
-                Path.Combine(config.BepInExRoot!, "config"), "AutoLLM_Glossary.txt");
+                Path.Combine(config.BepInExRoot!, "config"), GlossaryFileName);
         }
 
         return basePrompt
@@ -54,15 +64,22 @@ internal static class PromptManager
     }
 
     /// <summary>
-    /// 通用提示词文件加载逻辑。
-    /// customPrompt=false 时直接用默认提示词；true 时尝试读取自定义文件，不存在则创建模板。
+    /// 从单一自定义提示词文件加载并按 wantGlossary 选取对应分节。
+    /// 行为：
+    ///   - CustomPrompt=false：直接用 defaultPrompt（不读文件）
+    ///   - CustomPrompt=true：读 AutoLLM_CustomPrompt.txt
+    ///       * 文件不存在：以 Prompt.Default + 分隔符 + Prompt.Glossary 顺序写入后，
+    ///         按 wantGlossary 返回对应默认值
+    ///       * 文件存在：
+    ///         - 含分隔符 → 按 wantGlossary 返回对应分节（分节为空回退到对应 Default/Glossary）
+    ///         - 不含分隔符（兼容旧单节文件）→ 整文件作普通模式提示词；术语表模式回退 Prompt.Glossary
+    ///   - BepInExRoot 缺失：回退 defaultPrompt
     /// </summary>
-    private static string LoadPromptFile(AutoLLMConfig config, bool customPrompt,
-        string defaultPrompt, string customFileName, string label)
+    private static string LoadPromptSection(AutoLLMConfig config, bool wantGlossary, string defaultPrompt)
     {
-        if (!customPrompt)
+        if (!config.CustomPrompt)
         {
-            Logger.Info("使用默认" + label);
+            Logger.Info("使用默认" + (wantGlossary ? "术语表" : "") + "系统提示词");
             return defaultPrompt;
         }
 
@@ -70,39 +87,80 @@ internal static class PromptManager
         {
             // BepInEx 根目录定位失败时 Path.Combine 会抛 ArgumentNullException，
             // 此处显式回退到默认提示词，避免端点静默禁用
-            Logger.Warn("BepInEx 根目录未定位到，自定义" + label + "不可用，回退默认");
+            Logger.Warn("BepInEx 根目录未定位到，自定义系统提示词不可用，回退默认");
             return defaultPrompt;
         }
 
-        var path = Path.Combine(Path.Combine(config.BepInExRoot!, "config"), customFileName);
-        if (File.Exists(path))
+        var path = Path.Combine(Path.Combine(config.BepInExRoot!, "config"), CustomPromptFileName);
+
+        if (!File.Exists(path))
         {
-            try
-            {
-                var content = File.ReadAllText(path, Encoding.UTF8);
-                Logger.Info("已加载自定义" + label + ": " + path);
-                return content;
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("读取自定义" + label + "失败", ex);
-                return defaultPrompt;
-            }
-        }
-        else
-        {
+            // 首次运行：生成含两套分节的模板文件，方便用户修改
             try
             {
                 Directory.CreateDirectory(Path.Combine(config.BepInExRoot!, "config"));
-                File.WriteAllText(path, defaultPrompt, Encoding.UTF8);
-                Logger.Info("已创建默认自定义" + label + "模板: " + path);
-                return defaultPrompt;
+                var template = Prompt.Default + "\n\n" + SectionSeparator + "\n\n" + Prompt.Glossary;
+                File.WriteAllText(path, template, Encoding.UTF8);
+                Logger.Info("已创建自定义系统提示词模板（含普通/术语表两节）: " + path);
             }
             catch (Exception ex)
             {
-                Logger.Error("创建自定义" + label + "模板失败", ex);
-                return defaultPrompt;
+                Logger.Error("创建自定义系统提示词模板失败", ex);
             }
+            // 不论写入是否成功，首次都返回默认提示词
+            return defaultPrompt;
+        }
+
+        // 文件已存在：读取并分节
+        try
+        {
+            var content = File.ReadAllText(path, Encoding.UTF8);
+            Logger.Info("已加载自定义系统提示词: " + path);
+
+            int sepIdx = content.IndexOf(SectionSeparator, StringComparison.Ordinal);
+            if (sepIdx < 0)
+            {
+                // 兼容旧版本单节文件：没有分隔符
+                if (wantGlossary)
+                {
+                    Logger.Warn("自定义提示词文件缺少分节标记（\"" + SectionSeparator + "\"），" +
+                        "术语表模式无法定位术语表分节，回退到内建术语表默认提示词。" +
+                        "如需自定义，请按模板格式补充分节（普通模式段在上，术语表模式段在下）。");
+                    return Prompt.Glossary;
+                }
+                // 普通模式：整文件作提示词
+                return content;
+            }
+
+            // 含分隔符：分为普通模式段（前）与术语表模式段（后）
+            string defaultPart = content.Substring(0, sepIdx);
+            // 跳过分隔符行：分隔符后通常还有换行，一并去除首部空白/换行
+            string glossaryPart = content.Substring(sepIdx + SectionSeparator.Length);
+            glossaryPart = glossaryPart.TrimStart('\r', '\n');
+
+            if (wantGlossary)
+            {
+                if (string.IsNullOrEmpty(glossaryPart) || glossaryPart.Trim().Length == 0)
+                {
+                    Logger.Warn("自定义提示词文件术语表分节为空，回退到内建术语表默认提示词");
+                    return Prompt.Glossary;
+                }
+                return glossaryPart;
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(defaultPart) || defaultPart.Trim().Length == 0)
+                {
+                    Logger.Warn("自定义提示词文件普通模式分节为空，回退到内建默认提示词");
+                    return Prompt.Default;
+                }
+                return defaultPart;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("读取自定义系统提示词失败", ex);
+            return defaultPrompt;
         }
     }
 
