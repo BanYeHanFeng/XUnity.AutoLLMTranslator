@@ -196,8 +196,7 @@ internal class TranslationOrchestrator
             }
 
             // 历史太满导致装不下 → 清空历史后纳入本条
-            Logger.Info("上下文接近上限(" + estimatedTotal + "/" + _config.MaxContext + "), " +
-                "清空历史以容纳新任务 | 文本估算" + taskEstimate + " tokens");
+            // 清空动作的 Info 由 ConversationHistory.ClearHistory 统一记录
             _history.ClearHistory();
             OnHistoryCleared();
             estimatedTotal = _history.TotalContextTokens;
@@ -231,18 +230,13 @@ internal class TranslationOrchestrator
                 : _config.CachedSystemPrompt;
             var messages = _history.BuildMessages(systemPrompt, inputJson);
 
-            // ---- 批次开始（Debug） ----
-            if (Logger.IsDebugEnabled)
-            {
-                int totalChars = 0;
-                foreach (var t in texts) totalChars += t.Length;
-                long waitMs = Environment.TickCount - batch[0].CreatedTick;
-                int ctxTokens = _history.TotalContextTokens;
-                Logger.Debug(
-                    "批次 " + batchId + ": 选取" + batch.Count + "条(" + totalChars + "字符) | " +
-                    "上下文" + ctxTokens + "/" + _config.MaxContext + " | " +
-                    "排队" + waitMs + "毫秒 历史" + _history.TurnCount + "轮");
-            }
+            // ---- 轨迹表头数据（调用前捕获） ----
+            int totalChars = 0;
+            foreach (var t in texts) totalChars += t.Length;
+            long waitMs = Environment.TickCount - batch[0].CreatedTick;
+            int ctxTokens = _history.TotalContextTokens;
+            int turnCount = _history.TurnCount;
+            bool firstTurn = (turnCount == 0);
 
             // 同步调用 LLM（阻塞 ThreadPool 线程，net35 下无可避免）
             LlmResult result = _llmClient.Translate(
@@ -260,32 +254,54 @@ internal class TranslationOrchestrator
                 Interlocked.Add(ref _totalCacheMissTokens, result.Usage?.CacheMissTokens ?? 0);
             }
 
-            // ---- 批次完成（Debug） ----
+            // ---- LLM 调用轨迹（Debug） ----
+            // 只记录本轮新输入：首轮含系统提示词(系统:...) + 用户(inputJson)；
+            // 后续轮系统提示词已属历史，仅记录用户新输入。输出为完整 JSON，不截断。
+            // 尾行整合耗时/token/缓存/累计；接口未返回 token 时回退字符估算(0.75)。
             if (Logger.IsDebugEnabled)
             {
-                long inputTok = result.Usage?.PromptTokens ?? 0;
-                long outputTok = result.Usage?.CompletionTokens ?? 0;
-                if (LlmClient.CacheStatsSupported)
+                long inTok = result.Usage?.PromptTokens ?? 0;
+                long outTok = result.Usage?.CompletionTokens ?? 0;
+                bool estimated = (inTok == 0 && outTok == 0);
+                if (estimated)
                 {
-                    long hit = result.Usage?.CacheHitTokens ?? 0;
-                    long miss = result.Usage?.CacheMissTokens ?? 0;
-                    Logger.Debug(
-                        "批次 " + batchId + ": 完成 耗时" + result.ElapsedMs + "毫秒 | " +
-                        "输入" + inputTok + "tokens 输出" + outputTok + "tokens " +
-                        "[缓存命中" + hit + " 未中" + miss + "] | " +
-                        "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens +
-                        " 命中" + _totalCacheHitTokens + " 未中" + _totalCacheMissTokens);
+                    inTok = ctxTokens;
+                    outTok = result.FullResponse.Length * 3 / 4;
                 }
+
+                var trace = new StringBuilder();
+                trace.Append("[LLM调用] 批次").Append(batchId)
+                     .Append(" 选取").Append(batch.Count).Append("条(").Append(totalChars)
+                     .Append("字符) 上下文").Append(ctxTokens).Append("/").Append(_config.MaxContext)
+                     .Append(" 排队").Append(waitMs).Append("ms 历史").Append(turnCount).Append("轮")
+                     .Append("\n  实际输入: ");
+                if (firstTurn)
+                    trace.Append("系统:").Append(systemPrompt)
+                         .Append(" | 用户:").Append(inputJson);
+                else
+                    trace.Append("用户:").Append(inputJson);
+                trace.Append("\n  输出: ").Append(result.FullResponse)
+                     .Append("\n  耗时").Append(result.ElapsedMs).Append("ms ");
+                if (estimated)
+                    trace.Append("输入~").Append(inTok).Append("tokens(估算) 输出~")
+                         .Append(outTok).Append("tokens(估算)");
                 else
                 {
-                    long speed = outputTok > 0 && result.ElapsedMs > 0
-                        ? outputTok * 1000 / result.ElapsedMs : 0;
-                    Logger.Debug(
-                        "批次 " + batchId + ": 完成 耗时" + result.ElapsedMs + "毫秒 | " +
-                        "输入" + inputTok + "tokens 输出" + outputTok + "tokens " +
-                        speed + "tokens/s | " +
-                        "累计: 入" + _totalInputTokens + " 出" + _totalOutputTokens);
+                    trace.Append("输入").Append(inTok).Append("tokens 输出")
+                         .Append(outTok).Append("tokens");
+                    if (LlmClient.CacheStatsSupported)
+                    {
+                        long hit = result.Usage?.CacheHitTokens ?? 0;
+                        long miss = result.Usage?.CacheMissTokens ?? 0;
+                        trace.Append(" [缓存命中").Append(hit).Append(" 未中").Append(miss).Append("]");
+                    }
                 }
+                trace.Append(" 累计:入").Append(_totalInputTokens)
+                     .Append(" 出").Append(_totalOutputTokens);
+                if (LlmClient.CacheStatsSupported)
+                    trace.Append(" 命中").Append(_totalCacheHitTokens)
+                         .Append(" 未中").Append(_totalCacheMissTokens);
+                Logger.Debug(trace.ToString());
             }
 
             if (string.IsNullOrEmpty(result.FullResponse))
