@@ -60,8 +60,6 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
             yield break;
         }
 
-        Logger.Debug("翻译请求: " + context.UntranslatedText);
-
         var task = new TranslationTask
         {
             UntranslatedText = context.UntranslatedText!,
