@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 
 
@@ -23,12 +22,6 @@ internal class TranslationOrchestrator
     private Thread? _workerThread;
     private long _totalInputTokens, _totalOutputTokens;
     private long _totalCacheHitTokens, _totalCacheMissTokens;
-
-    // HalfWidthRegex: 全角符号 [！-～] (U+FF01 - U+FF5E)
-    // 用 Unicode 范围替代显式字符列表，避免 verbatim string 中 "" 转义带来的字符类构成错误
-    // （旧实现误包含半角 " U+0022 而漏掉全角 ＂ U+FF02，导致半角双引号被错误映射到 U+0142）
-    private static readonly Regex HalfWidthRegex =
-        new Regex(@"[\uFF01-\uFF5E]", RegexOptions.Compiled);
 
     public TaskQueue Queue => _taskQueue;
 
@@ -307,46 +300,9 @@ internal class TranslationOrchestrator
             if (string.IsNullOrEmpty(result.FullResponse))
                 throw new Exception("翻译结果为空");
 
-            // 解析响应
-            var resultObj = SimpleJson.ParseJsonObject(result.FullResponse);
-            if (resultObj == null || resultObj.Count == 0)
-                throw new Exception("JSON结果解析失败: " + result.FullResponse);
-
-            // 分发结果：术语表模式用 translations 嵌套结构，否则用扁平数字 key
-            Dictionary<string, object>? translationsObj = null;
-            Dictionary<string, object>? glossaryObj = null;
-            if (_config.AutoGlossary && resultObj.TryGetValue("translations", out object? tObj)
-                && tObj is Dictionary<string, object> tDict)
-            {
-                translationsObj = tDict;
-                if (resultObj.TryGetValue("glossary", out object? gObj)
-                    && gObj is Dictionary<string, object> gDict)
-                    glossaryObj = gDict;
-            }
-            else
-            {
-                // 非术语表模式：整个对象就是译文映射
-                translationsObj = resultObj;
-            }
-
-            int completed = 0;
-            foreach (var kvp in translationsObj)
-            {
-                int index;
-                if (!int.TryParse(kvp.Key, out index)) continue;
-                if (index < 1 || index > batch.Count) continue;
-
-                string translated = (kvp.Value as string) ?? "";
-                if (string.IsNullOrEmpty(translated)) continue;
-
-                // 全角转半角
-                if (_config.HalfWidth)
-                    translated = HalfWidthRegex.Replace(translated,
-                        m => ((char)(m.Value[0] - 0xFEE0)).ToString());
-
-                batch[index - 1].MarkCompleted(translated);
-                completed++;
-            }
+            // 解析响应并分发译文到批内任务（半角化封装在内部）
+            Dictionary<string, object>? glossaryObj;
+            int completed = BatchResponseParser.ParseAndDispatch(result, batch, _config, out glossaryObj);
 
             // 术语表模式：收集本轮新术语（暂存内存）
             // ParallelCount 已废弃固定为 1，落盘统一走对话历史清空路径(OnHistoryCleared)，
