@@ -26,21 +26,17 @@ XUnity.AutoLLMTranslator/
 │   └── AutoLLMTranslateEndpoint.cs   # 框架适配层：实现 ITranslateEndpoint，协程等待
 ├── Configuration/
 │   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理
-│   └── PromptManager.cs              # 系统提示词构建：单文件 AutoLLM_CustomPrompt.txt 含分隔符的两节（普通模式/术语表模式）
-├── Models/
-│   ├── LlmModels.cs                  # 数据模型：LlmMessage, LlmResult, LlmUsage
-│   └── TranslationTask.cs            # 翻译任务实体 + 状态机
+│   └── PromptManager.cs              # 系统提示词构建 + 内建默认提示词常量（Default/Glossary）；单文件 AutoLLM_CustomPrompt.txt 含分隔符的两节
 ├── Orchestration/
 │   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理、术语表集成
+│   ├── BatchResponseParser.cs        # LLM 响应解析 → 译文分发到批内任务（含全角转半角）
 │   ├── TaskQueue.cs                  # 线程安全任务队列（AutoResetEvent 信号）
-│   ├── RateLimitGuard.cs             # 指数退避限速控制（5s→10s→20s→40s→60s）
-│   └── RetryHandler.cs               # 重试策略（最多 MaxRetry 次）
+│   └── Guards.cs                     # RetryHandler（重试策略）+ RateLimitGuard（指数退避限速，5s→10s→…→60s）
 ├── Translation/
-│   ├── ILlmClient.cs                 # LLM 客户端接口（便于测试替换）
-│   ├── LlmClient.cs                  # LLM API 客户端：HttpWebRequest + SSE 流解析
+│   ├── LlmClient.cs                  # LLM API 客户端接口 ILlmClient + 实现：HttpWebRequest + SSE 流解析
 │   ├── ConversationHistory.cs        # 对话历史管理（线程安全，chars×0.75 估算 + API 精确追踪）
-│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空/批次成功时落盘）
-├── Prompt.cs                         # 默认系统提示词常量（Default + Glossary 两套）
+│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空时落盘）
+├── Models.cs                         # 数据模型：LlmMessage, LlmResult, LlmUsage, TaskState, TranslationTask
 ├── SimpleJson.cs                     # 零依赖 JSON 序列化/解析器
 ├── Logger.cs                         # 日志封装（委托给 XuaLogger.Common）
 ├── XUnity.AutoLLMTranslator.csproj   # SDK 风格项目文件
@@ -49,6 +45,8 @@ XUnity.AutoLLMTranslator/
 ├── README.md / README.en.md          # 中英双语项目说明
 └── LICENSE.txt                       # 许可证
 ```
+
+> 全部类型均为 `internal`、全局命名空间（无 `namespace` 块）；目录仅用于组织，不映射到 CLR 命名空间。SDK 风格 csproj 自动 glob 所有 `.cs`，文件移动无需改工程。
 
 ---
 
@@ -72,7 +70,7 @@ ProcessBatch() (ThreadPool 线程)
   │  构建 {"1":"原文1","2":"原文2"} JSON
   │  ConversationHistory.BuildMessages() → [system, history, user]
   │  LlmClient.Translate() → SSE 流式请求 LLM API
-  │  解析 JSON 结果 → 分发译文到各 TranslationTask
+  │  BatchResponseParser.ParseAndDispatch() → 解析 JSON + 全角半角 + 分发译文到各 TranslationTask
   │  成功 → ConversationHistory.RecordApiUsage() + RecordExchange()
   │  失败(429) → RateLimitGuard 指数退避，ReEnqueue（不耗重试次数）
   │  失败(其他) → RetryHandler 判断是否重试
@@ -84,7 +82,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 
 ## 四、各文件详解
 
-### 1. `Endpoint/AutoLLMTranslateEndpoint.cs`（93 行）
+### 1. `Endpoint/AutoLLMTranslateEndpoint.cs`（91 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -96,50 +94,46 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `Translate()` | 协程方法：创建 `TranslationTask` → 入队 → `yield return null` 轮询完成 |
 | `Dispose()` | 调用 `_orchestrator.Shutdown()` |
 
-### 2. `Configuration/AutoLLMConfig.cs`（225 行）
+### 2. `Configuration/AutoLLMConfig.cs`（234 行）
 
 | 要点 | 说明 |
 |---|---|
 | 配置来源 | `IInitializationContext.GetOrCreateSetting("AutoLLM", key, default)` |
-| 配置项 | Model, URL, APIKey, MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt, HalfWidth(true), DisableSpamChecks(true) |
-| URL 补全 | `/v1` → `/v1/chat/completions`，`/v1/` → `/v1/chat/completions` |
-| ThreadPool | 确保最小线程数 ≥ ParallelCount+2（=3，ParallelCount 已固定为 1） |
-| 系统提示词 | 初始化时通过 `PromptManager.Build()` 预构建并缓存到 `CachedSystemPrompt` |
+| 配置项 | Model, URL, APIKey, MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt(false), AutoGlossary(false), HalfWidth(true), DisableSpamChecks(true) |
+| URL 补全 | 结尾为 `/v1` → 追加 `/chat/completions`；结尾为 `/v1/` → 追加 `chat/completions`；其余不补 |
+| ThreadPool | 确保最小 worker/IO 线程数 ≥ `ParallelCount + 2`（=3） |
+| 系统提示词 | 在 `AutoLLMConfig.FromInitializationContext` 末尾通过 `PromptManager.Build()` 预构建并缓存到 `CachedSystemPrompt`；AutoGlossary 时额外 `BuildGlossaryPrompt()` 存入 `CachedGlossaryPrompt` |
 | 日志等级 | 从 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` 和 `[Logging.Disk]` 联合读取 |
 | BepInEx 定位 | 从 TranslatorDirectory 向上查找（含 `core/` 子目录 或 目录名为 `BepInEx`） |
+| `ParallelCount` | `public const int = 1`，已废弃不再读取配置；多处语义（并发、对话历史启停、术语表落盘路径）均依赖此固定值 |
 
 ### 3. `Configuration/PromptManager.cs`
 
+内建默认提示词常量（`Default`、`Glossary`，均为 `private const`）+ 自定义提示词文件加载逻辑。
+
 | 要点 | 说明 |
 |---|---|
-| `Build(config)` | 根据 `CustomPrompt` 决定使用默认提示词还是从单一文件 `AutoLLM_CustomPrompt.txt` 读取【普通模式分节】 |
+| `Build(config)` | 根据 `CustomPrompt` 决定使用内建默认还是从单一文件 `AutoLLM_CustomPrompt.txt` 读取【普通模式分节】 |
 | `BuildGlossaryPrompt(config)` | 构建术语表模式提示词，从同一文件读取【术语表模式分节】，设置 `config.GlossaryPath`，保留 `{{GLOSSARY}}` 占位符 |
 | 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt`（单一文件，含分隔符的两节） |
 | 文件分隔符 | 常量 `PromptManager.SectionSeparator`：分隔符行之上为普通模式段，之下为术语表模式段 |
 | 占位符替换 | `{{SOURCE_LAN}}` → 源语言，`{{TARGET_LAN}}` → 目标语言；`{{GLOSSARY}}` 由 GlossaryManager 运行时填充 |
-| 首次开启 | 自动创建含两套默认提示词（用 `SectionSeparator` 分节）的模板文件，方便用户修改 |
+| 首次开启 | 自动创建含两套内建默认提示词（用 `SectionSeparator` 分节）的模板文件，方便用户修改 |
 | `LoadPromptSection()` | 通用加载逻辑：customPrompt=false 用默认，true 时按 `wantGlossary` 选取对应分节（找不到分隔符的旧文件会回退/警告） |
 
-### 4. `Models/LlmModels.cs`（25 行）
+### 4. `Models.cs`（72 行）
 
-| 类型 | 字段 |
+合并数据模型，全部 `internal` 全局命名空间。
+
+| 类型 | 字段/说明 |
 |---|---|
 | `LlmMessage` | `Role`（system/user/assistant），`Content` |
 | `LlmResult` | `FullResponse`, `Usage`(LlmUsage), `ChunkCount`, `DoneReceived`, `ElapsedMs` |
 | `LlmUsage` | `PromptTokens`, `CompletionTokens`, `CacheHitTokens`, `CacheMissTokens` |
+| `enum TaskState` | `Waiting, Processing, Completed, Failed` |
+| `TranslationTask` | `UntranslatedText`, `TranslatedText?`, `ErrorMessage?`, `State`, `RetryCount`, `CharLen`, `CreatedTick`，`volatile bool IsCompleted`（Endpoint 协程轮询字段），便利方法 `MarkCompleted/MarkFailed/ResetForRetry` |
 
-### 5. `Models/TranslationTask.cs`（47 行）
-
-| 要点 | 说明 |
-|---|---|
-| 状态枚举 | `TaskState { Waiting, Processing, Completed, Failed }` |
-| 关键字段 | `UntranslatedText`, `TranslatedText`, `ErrorMessage`, `State`, `RetryCount`, `CharLen`, `CreatedTick` |
-| `volatile bool IsCompleted` | Endpoint 协程轮询此字段判断任务完成 |
-| `MarkCompleted()` | 设置译文 + 状态 = Completed + IsCompleted = true |
-| `MarkFailed()` | 设置错误信息 + 状态 = Failed + IsCompleted = true |
-| `ResetForRetry()` | 状态重置为 Waiting，清空结果（用于重试入队） |
-
-### 6. `Orchestration/TranslationOrchestrator.cs`
+### 5. `Orchestration/TranslationOrchestrator.cs`
 
 **核心调度引擎**，管理整个翻译生命周期。
 
@@ -147,20 +141,30 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 |---|---|
 | `WorkerLoop()` | 后台线程主循环：WaitOne(50ms) → 限速检查 → 并发检查 → 积压告警 → DispatchBatches |
 | `DispatchBatches()` | 循环取批直到并发满或队列空，标记 Processing，提交 ThreadPool；历史清空时触发 `OnHistoryCleared` |
-| `ProcessBatch()` | 批次翻译核心流程（见下） |
+| `ProcessBatch()` | 批次翻译核心流程（见下）；响应解析/分发/全角半角交由 `BatchResponseParser` |
+| `SelectBatch()` | Token 感知选批：超限走「下一句截断」/「单条丢弃」/「清空历史后纳入」三条分支 |
 | `BuildInputJson()` | 构建 `{"1":"原文1","2":"原文2"}` 格式 JSON |
-| `HalfWidthRegex` | 静态编译正则，全角符号 `[！-～]` 转半角（偏移 `0xFEE0`） |
-| `OnHistoryCleared()` | 历史清空后合并术语表到文件 + 更新系统提示词 token 估算（仅 AutoGlossary，ParallelCount 已固定为 1） |
-| Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens` |
+| `OnHistoryCleared()` | 历史清空后合并术语表到文件 + 更新系统提示词 token 估算（仅 AutoGlossary，ParallelCount 已固定为 1，为本项目唯一术语表落盘路径） |
+| Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens`（`Interlocked.Add` 累加） |
 
 **ProcessBatch 流程**：
 1. 收集文本，构建输入 JSON
 2. 构建系统提示词：AutoGlossary 时用 `GlossaryManager.BuildSystemPrompt()`（含术语表），否则用 `CachedSystemPrompt`
 3. `_history.BuildMessages()` 组装 [system, ...history, user]
 4. `_llmClient.Translate()` 同步阻塞调用（net35 限制）
-5. 成功：`_rateLimitGuard.Reset()`，解析 JSON 结果（AutoGlossary 用 `translations`+`glossary` 嵌套），全角转半角，分发译文，`AddPendingTerms` 收集新术语（落盘统一走 `OnHistoryCleared`，避免每批文件 I/O），`RecordApiUsage` + `RecordExchange`
+5. 成功：`_rateLimitGuard.Reset()` → `BatchResponseParser.ParseAndDispatch()` 解析+分发+全角半角 → `AddPendingTerms` 收集新术语（落盘统一走 `OnHistoryCleared`，避免每批文件 I/O） → `RecordApiUsage` + `RecordExchange`
 6. 失败(429)：`_rateLimitGuard.OnRateLimited()`，`ReEnqueue`（不消耗重试次数）
 7. 失败(其他)：`_retryHandler.ShouldRetry()` → IncrementRetry → ReEnqueue，超限则 MarkFailed
+
+### 6. `Orchestration/BatchResponseParser.cs`
+
+纯转换组件：LLM JSON 响应 → 批内任务分发，不接触队列/历史/重试/限速状态。
+
+| 要点 | 说明 |
+|---|---|
+| `HalfWidthRegex` | 静态编译正则，全角符号 `[！-～]` 转半角（偏移 `0xFEE0`）；从 Orchestrator 迁入 |
+| `ParseAndDispatch(result, batch, config, out glossaryObj)` | 校验非空 → `SimpleJson.ParseJsonObject` → 术语表模式取 `translations`/`glossary` 嵌套、否则整对象为译文映射 → 按需全角转半角 → `MarkCompleted` 分发；返回完成数，`out` 暴露本轮新术语 |
+| 文本超限/单条丢弃 | 仍由 Orchestrator 的 `SelectBatch` 负责，本类只处理已成功返回的响应 |
 
 ### 7. `Orchestration/TaskQueue.cs`（119 行）
 
@@ -175,45 +179,51 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `MarkCompleted()` | `Interlocked.Decrement` 递减计数 |
 | `CompactIfNeeded()` | 当 head 超过容量一半时自动压缩，避免内存泄漏 |
 
-### 8. `Orchestration/RateLimitGuard.cs`（37 行）
+### 8. `Orchestration/Guards.cs`
+
+合并两个协作件，均为 `internal` 全局命名空间，仅 Orchestrator 持有。
+
+**`RateLimitGuard`**：
 
 | 要点 | 说明 |
 |---|---|
-| 退避策略 | 初次 5000ms → 翻倍 → 上限 60000ms |
+| 退避策略 | 初次 5000ms → 翻倍 → 上限 60000ms（即 5s→10s→20s→40s→60s） |
 | `OnRateLimited()` | 首次 5s，后续 `delay*2`（上限 60s） |
 | `Reset()` | 收到正常响应后清零 |
 | `IsBlocked()` | 基于 `Environment.TickCount` 判断冷却期是否结束 |
 
-### 9. `Orchestration/RetryHandler.cs`（24 行）
+**`RetryHandler`**：
 
 | 要点 | 说明 |
 |---|---|
-| 构造参数 | `maxRetry`（来自配置，默认 10） |
+| 构造参数 | `maxRetry`（来自配置，默认 5） |
 | `ShouldRetry(task)` | `task.RetryCount < _maxRetry` |
 | `IncrementRetry(task)` | `task.RetryCount++` |
 
-### 10. `Translation/ILlmClient.cs`（19 行）
+### 9. `Translation/LlmClient.cs`（158 行，含 `ILlmClient` 接口）
 
-接口抽象，方便测试时替换 LLM 客户端实现。
+接口与实现位于同一文件顶部。
+
+**`ILlmClient`**：接口抽象，方便测试时替换 LLM 客户端实现。
 
 ```csharp
 LlmResult Translate(string url, string apiKey, string model,
     List<LlmMessage> messages, Dictionary<string, object> extraParams);
 ```
 
-### 11. `Translation/LlmClient.cs`（140 行）
+**`LlmClient`**：
 
 | 要点 | 说明 |
 |---|---|
 | 协议 | HTTP POST，Bearer 认证，Content-Type: application/json |
 | 超时 | Timeout=600000(10min)，ReadWriteTimeout=120000(2min) |
 | 请求体 | 合并 extraParams → 设置 model, messages, response_format(json_object), stream(true), stream_options({include_usage:true}) |
-| SSE 解析 | `data:` 前缀行（兼容有无空格）→ 逐 chunk 提取 choices[0].delta.content → 最后一次提取 usage 对象 |
+| SSE 解析 | `data:` 前缀行（兼容有无空格）→ 逐 chunk 调 `SimpleJson.ParseSseChunk` 同时提取 content + usage（单次解析） |
 | `CacheStatsSupported` | 静态属性：首次响应后检测 `prompt_cache_hit_tokens/miss_tokens` 字段 |
 | 消息序列化 | `LlmMessage` → `Dictionary<string, object>`（强类型模型，SimpleJson 不支持反射序列化） |
 | 未收到 [DONE] | 发出警告但保留已拼接的响应内容 |
 
-### 12. `Translation/ConversationHistory.cs`
+### 10. `Translation/ConversationHistory.cs`
 
 | 要点 | 说明 |
 |---|---|
@@ -229,7 +239,7 @@ LlmResult Translate(string url, string apiKey, string model,
 | `EstimateTokens()` | 纯文本 token 估算（chars × 3/4） |
 | `IncrementDiscardCount()` | 单条超限丢弃计数 |
 
-### 13. `Translation/GlossaryManager.cs`
+### 11. `Translation/GlossaryManager.cs`
 
 自动术语表管理器，仅在 `AutoGlossary=true` 时启用。
 
@@ -244,27 +254,18 @@ LlmResult Translate(string url, string apiKey, string model,
 | 落盘时机 | 由 Orchestrator 调用 `MergePendingAndSave()`：ParallelCount 已固定为 1，在对话历史清空时调用（`OnHistoryCleared`），避免每批文件 I/O |
 | 首次运行 | 自动创建空 `{}` 文件 |
 
-### 14. `Prompt.cs`
-
-| 要点 | 说明 |
-|---|---|
-| 常量 | `Prompt.Default`（普通翻译）与 `Prompt.Glossary`（术语表模式）两套 |
-| 占位符 | `{{SOURCE_LAN}}`、`{{TARGET_LAN}}`（语言）；`{{GLOSSARY}}`（仅 Glossary，运行时由 GlossaryManager 填充） |
-| 规则 | 不得拒绝翻译、分析语境统一术语、保留格式标签、输出纯 JSON、不添加解释 |
-| Glossary 规则 | 优先使用术语表、新术语选词类型(角色名/地名/组织/物品/技能)、输出 `translations`+`glossary` 嵌套 JSON |
-
-### 14. `SimpleJson.cs`（258 行）
+### 12. `SimpleJson.cs`（258 行）
 
 | 要点 | 说明 |
 |---|---|
 | 序列化 | `Serialize(object)` 支持 null/bool/string/数值/IDictionary/IEnumerable（禁止匿名类型，无反射分支） |
 | 解析 | 完整的递归下降解析器：`ParseObject` / `ParseArray` / `ParseValue` / `ReadString` / `ReadNumber` |
-| SSE 专用 | `ParseSseChunk()` 单次解析同时提取 content 和 usage（避免双解析） |
+| SSE 专用 | `ParseSseChunk(json, out content, out usage)` 单次解析同时提取 content 和 usage（避免双解析） |
 | 特殊方法 | `ParseJsonObject()` / `ParseModelParams()` 返回 `Dictionary<string, object>` |
 | Unicode | 支持 `\uXXXX` 转义序列 |
 | 容错 | 解析失败返回空 dict/list，不抛异常 |
 
-### 15. `Logger.cs`（63 行）
+### 13. `Logger.cs`（63 行）
 
 | 要点 | 说明 |
 |---|---|
@@ -280,7 +281,7 @@ LlmResult Translate(string url, string apiKey, string model,
 ### 数据与序列化
 
 1. **禁止匿名类型**：所有传递给 `SimpleJson.Serialize()` 的对象必须是 `Dictionary<string, object>`、`List<Dictionary>` 或基元类型。`Serialize()` 遇到非 IDictionary/IEnumerable/基元的对象会静默返回 `"obj.ToString()"` 字符串而非抛异常——调用方需自行确保类型正确
-2. **消息使用强类型**：dev 分支引入 `LlmMessage` 模型，替代原始 `Dictionary<string, object>` 直传方式
+2. **消息使用强类型**：`LlmMessage` 模型（定义于 `Models.cs`）替代原始 `Dictionary<string, object>` 直传方式
 3. **SSE 单次解析**：`SimpleJson.ParseSseChunk()` 一次调用同时提取 content 和 usage，避免重复遍历 JSON
 
 ### 可空引用类型（NRT）
@@ -321,7 +322,7 @@ LlmResult Translate(string url, string apiKey, string model,
 1. **术语表文件**：`{BepInExRoot}/config/AutoLLM_Glossary.txt`，JSON 格式 `{"原文":"译文"}`
 2. **术语表位置**：作为系统提示词的一部分（拼接到 `{{GLOSSARY}}` 占位符后），不作为独立 system 消息——保持缓存前缀稳定
 3. **更新时机**：ParallelCount 固定为 1，仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）合并落盘
-4. **新术语缓冲**：ProcessBatch 解析响应 glossary 字段时存入内存 `_pendingNew`，不立即写文件
+4. **新术语缓冲**：`BatchResponseParser.ParseAndDispatch` 解析响应 glossary 字段并通过 `out` 返回，由 Orchestrator 调 `AddPendingTerms` 存入内存 `_pendingNew`，不立即写文件
 5. **向后兼容**：`AutoGlossary=false` 时模型输出 `{"1":"译文"}` 扁平结构；`AutoGlossary=true` 时输出 `{"translations":{"1":"译文"},"glossary":{...}}` 嵌套结构
 6. **Token 估算**：术语表合并后系统提示词变长，`ConversationHistory.UpdateSystemPrompt()` 重置基线 token
 
@@ -345,7 +346,8 @@ LlmResult Translate(string url, string apiKey, string model,
 
 ```bash
 # 构建输出到 bin/Release/net35/XUnity.AutoLLMTranslator.dll
-dotnet build XUnity.AutoLLMTranslator.sln -c Release
+# 仓库无 .sln，直接对 csproj 构建
+dotnet build XUnity.AutoLLMTranslator.csproj -c Release
 ```
 
 ### 构建流程
@@ -394,13 +396,14 @@ dotnet build XUnity.AutoLLMTranslator.sln -c Release
 | 任务 | 文件 |
 |---|---|
 | 调整翻译批次逻辑 | `Orchestration/TranslationOrchestrator.cs` |
-| 修改 LLM 请求格式 | `Translation/LlmClient.cs` |
-| 修改系统提示词 | `Prompt.cs` 或 `Configuration/PromptManager.cs` |
+| 调整 LLM 响应解析/译文分发/全角半角 | `Orchestration/BatchResponseParser.cs` |
+| 修改 LLM 请求格式 | `Translation/LlmClient.cs`（接口 `ILlmClient` 与实现 `LlmClient` 同文件） |
+| 修改内建默认系统提示词 | `Configuration/PromptManager.cs`（常量 `Default`/`Glossary` 已合入此类） |
 | 添加配置项 | `Configuration/AutoLLMConfig.cs` |
-| 调整重试/限速策略 | `Orchestration/RetryHandler.cs` / `Orchestration/RateLimitGuard.cs` |
+| 调整重试/限速策略 | `Orchestration/Guards.cs`（`RetryHandler` + `RateLimitGuard`） |
 | 修改 JSON 解析 | `SimpleJson.cs` |
 | 修改对话历史策略 | `Translation/ConversationHistory.cs` |
-| 修改自动术语表 | `Translation/GlossaryManager.cs` / `Prompt.cs`（Glossary 常量） |
+| 修改自动术语表 | `Translation/GlossaryManager.cs`（术语表逻辑）+ `Configuration/PromptManager.cs`（术语表模式提示词常量 `Glossary`） |
 | 修改端点框架适配 | `Endpoint/AutoLLMTranslateEndpoint.cs` |
 
 ### 禁止事项
