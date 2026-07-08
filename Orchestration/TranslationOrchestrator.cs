@@ -233,7 +233,7 @@ internal class TranslationOrchestrator
 
             // 同步调用 LLM（阻塞 ThreadPool 线程，net35 下无可避免）
             LlmResult result = _llmClient.Translate(
-                _config.Url, _config.ApiKey, _config.Model,
+                _config.EndpointUrl, _config.ApiKey, _config.Model,
                 messages, _config.ParsedModelParams);
 
             _rateLimitGuard.Reset();
@@ -247,11 +247,12 @@ internal class TranslationOrchestrator
                 Interlocked.Add(ref _totalCacheMissTokens, result.Usage?.CacheMissTokens ?? 0);
             }
 
-            // ---- LLM 调用轨迹（Debug） ----
+            // ---- LLM 调用轨迹（Debug）----
+            // 过滤交由 BepInEx 的 listener 按 BepInEx.cfg 的 LogLevels 处理；
+            // 此处无条件构造并发出，避免本插件与框架重复维护一份日志级别开关。
             // 只记录本轮新输入：首轮含系统提示词(系统:...) + 用户(inputJson)；
             // 后续轮系统提示词已属历史，仅记录用户新输入。输出为完整 JSON，不截断。
             // 尾行整合耗时/token/缓存/累计；接口未返回 token 时回退字符估算(0.75)。
-            if (Logger.IsDebugEnabled)
             {
                 long inTok = result.Usage?.PromptTokens ?? 0;
                 long outTok = result.Usage?.CompletionTokens ?? 0;

@@ -19,31 +19,20 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
 
     public void Initialize(IInitializationContext context)
     {
-        try
-        {
-            context.SetTranslationDelay(0.1f);
+        context.SetTranslationDelay(0.1f);
 
-            var config = AutoLLMConfig.FromInitializationContext(context);
-            if (!config.IsValid)
-            {
-                Logger.Error("Model 或 URL 未配置，翻译功能已禁用");
-                return;
-            }
+        // FromInitializationContext 在必填项缺失时抛 EndpointInitializationException，
+        // 交由框架的 TranslationManager 统一捕获并标记端点初始化失败（与其它端点一致）。
+        var config = AutoLLMConfig.FromInitializationContext(context);
 
-            Logger.Init(config);
-            Logger.Info("端点初始化完成");
+        Logger.Info("端点初始化完成");
 
-            _orchestrator = new TranslationOrchestrator(config, new LlmClient());
-            _orchestrator.Start();
-            _initialized = true;
+        _orchestrator = new TranslationOrchestrator(config, new LlmClient());
+        _orchestrator.Start();
+        _initialized = true;
 
-            Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
-                " 最大上下文=" + config.MaxContext);
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("端点初始化异常", ex);
-        }
+        Logger.Info("翻译服务已启动 | 模型=" + config.Model + " 地址=" + config.Url +
+            " 端点=" + config.EndpointUrl + " 最大上下文=" + config.MaxContext);
     }
 
     public IEnumerator Translate(ITranslationContext context)

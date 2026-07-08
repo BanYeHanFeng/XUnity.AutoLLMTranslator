@@ -38,7 +38,7 @@ XUnity.AutoLLMTranslator/
 │   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空时落盘）
 ├── Models.cs                         # 数据模型：LlmMessage, LlmResult, LlmUsage, TaskState, TranslationTask
 ├── SimpleJson.cs                     # 零依赖 JSON 序列化/解析器
-├── Logger.cs                         # 日志封装（委托给 XuaLogger.Common）
+├── Logger.cs                         # 日志封装（委托给 XuaLogger.AutoTranslator + [AutoLLM] 标签）
 ├── XUnity.AutoLLMTranslator.csproj   # SDK 风格项目文件
 ├── packages/                         # XUnity 框架本地 DLL 引用
 ├── .github/workflows/release.yml     # CI：Windows 构建 + GitHub Release 自动发布
@@ -100,10 +100,10 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 |---|---|
 | 配置来源 | `IInitializationContext.GetOrCreateSetting("AutoLLM", key, default)` |
 | 配置项 | Model, URL, APIKey, MaxRetry(5), MaxContext(4096), ModelParams, CustomPrompt(false), AutoGlossary(false), HalfWidth(true), DisableSpamChecks(true) |
-| URL 补全 | 结尾为 `/v1` → 追加 `/chat/completions`；结尾为 `/v1/` → 追加 `chat/completions`；其余不补 |
-| ThreadPool | 确保最小 worker/IO 线程数 ≥ `ParallelCount + 2`（=3） |
+| URL 补全 | 保留用户填写的 `Url` 原值用于日志；结尾为 `/v1` → 派生 `EndpointUrl` 追加 `/chat/completions`；结尾为 `/v1/` → 追加 `chat/completions`；其余 `EndpointUrl=Url` |
+| 验证 | Model 或 URL 缺失 → 抛 `EndpointInitializationException`（由框架统一捕获并标记端点初始化失败），与其它端点（Yandex/Watson/Custom …）一致 |
 | 系统提示词 | 在 `AutoLLMConfig.FromInitializationContext` 末尾通过 `PromptManager.Build()` 预构建并缓存到 `CachedSystemPrompt`；AutoGlossary 时额外 `BuildGlossaryPrompt()` 存入 `CachedGlossaryPrompt` |
-| 日志等级 | 从 `BepInEx/config/BepInEx.cfg` 的 `[Logging.Console]` 和 `[Logging.Disk]` 联合读取 |
+| 日志等级 | 不本地门控；统一经 `XuaLogger.AutoTranslator` 转发，由 BepInEx 的 Console/Disk listener 按 `BepInEx.cfg` 的 `[Logging.Console]`/`[Logging.Disk].LogLevels` 过滤 |
 | BepInEx 定位 | 从 TranslatorDirectory 向上查找（含 `core/` 子目录 或 目录名为 `BepInEx`） |
 | `ParallelCount` | `public const int = 1`，已废弃不再读取配置；多处语义（并发、对话历史启停、术语表落盘路径）均依赖此固定值 |
 
@@ -265,14 +265,14 @@ LlmResult Translate(string url, string apiKey, string model,
 | Unicode | 支持 `\uXXXX` 转义序列 |
 | 容错 | 解析失败返回空 dict/list，不抛异常 |
 
-### 13. `Logger.cs`（63 行）
+### 13. `Logger.cs`（约 40 行）
 
 | 要点 | 说明 |
 |---|---|
-| 底层 | 委托给 `XuaLogger.Common`（XUnity 框架日志） |
-| 格式 | `[ALLM_标签]: [HH:mm:ss] 消息` |
-| 等级 | Info/Warn/Debug 由配置控制开关，Error 始终输出 |
-| 初始化 | `Logger.Init(config)` 从 AutoLLMConfig 同步日志开关状态 |
+| 底层 | 委托给 `XuaLogger.AutoTranslator`（与框架自带翻译器 GoogleTranslate/DeepL/Bing 一致），无需直接引用 BepInEx，BepInEx 5/6 双版本通吃 |
+| 格式 | 消息统一加注 `[AutoLLM] ` 前缀（最终显示形如 `[INFO][XUnity.AutoTranslator]: [AutoLLM] 消息`） |
+| 等级 | 不本地门控；Info/Warn/Debug 全部无条件转发，由 BepInEx 的 Console/Disk listener 按 `BepInEx.cfg` 的 `LogLevels` 过滤。Error 始终输出，且失败时兜底到 `Console.Error` |
+| 初始化 | 无 `Init`；不再从 `AutoLLMConfig` 同步日志开关状态 |
 
 ---
 
@@ -313,7 +313,7 @@ LlmResult Translate(string url, string apiKey, string model,
 2. `ParallelCount > 1` 路径已废弃：`ConversationHistory.Enabled` 固定为 true
 3. `DisableSpamChecks` 默认 true（减少误关）
 4. `HalfWidth` 默认 true（全角符号转半角）
-5. 日志等级从 BepInEx 配置读取，非独立控制
+5. 日志等级不本地控制，统一经 `XuaLogger.AutoTranslator` 转发，由 BepInEx 的 listener 按 `BepInEx.cfg` 过滤
 6. `MaxContext` 双重角色：控制对话历史上限 + 单批次 token 上限
 7. `AutoGlossary` 与 `CustomPrompt` 独立：CustomPrompt 控制单一自定义提示词文件 `AutoLLM_CustomPrompt.txt`（含分隔符的两节），AutoGlossary 控制从该文件读取哪一节（普通/术语表）；两套开关独立
 
