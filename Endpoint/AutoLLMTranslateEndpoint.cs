@@ -45,7 +45,12 @@ internal class AutoLLMTranslateEndpoint : ITranslateEndpoint, IDisposable
 
         if (string.IsNullOrEmpty(context.UntranslatedText))
         {
+            // 显式 Fail：原先仅 yield break 不调用 Complete/Fail，
+            // 依赖框架 finally 的 FailIfNotCompleted() 兜底，错误信息为
+            // 通用文案"The translation request was not completed before returning from translator."，
+            // 排查不直观。此处改为显式 Fail 以给出明确语义（与上方“端点未初始化”路径风格一致）。
             Logger.Debug("翻译请求: 空文本，跳过");
+            context.Fail("空文本，无翻译内容");
             yield break;
         }
 
