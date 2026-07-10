@@ -26,7 +26,7 @@ XUnity.AutoLLMTranslator/
 │   └── AutoLLMTranslateEndpoint.cs   # 框架适配层：实现 ITranslateEndpoint，协程等待
 ├── Configuration/
 │   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理
-│   └── PromptManager.cs              # 系统提示词构建 + 内建默认提示词常量（Default/Glossary）；单文件 AutoLLM_CustomPrompt.txt 含分隔符的两节
+│   └── PromptManager.cs              # 系统提示词构建 + 内建默认提示词常量（Default/Glossary）；单文件 AutoLLM_CustomPrompt.txt 用 INI 风格分节标题分两节
 ├── Orchestration/
 │   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理、术语表集成（每批即时落盘 + 历史清空注入）
 │   ├── BatchResponseParser.cs        # LLM 响应解析 → 译文分发到批内任务（含全角转半角）
@@ -115,11 +115,11 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 |---|---|
 | `Build(config)` | 根据 `CustomPrompt` 决定使用内建默认还是从单一文件 `AutoLLM_CustomPrompt.txt` 读取【普通模式分节】 |
 | `BuildGlossaryPrompt(config)` | 构建术语表模式提示词，从同一文件读取【术语表模式分节】，设置 `config.GlossaryPath`，保留 `{{GLOSSARY}}` 占位符 |
-| 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt`（单一文件，含分隔符的两节） |
-| 文件分隔符 | 常量 `PromptManager.SectionSeparator`：分隔符行之上为普通模式段，之下为术语表模式段 |
+| 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt`（单一文件，用 INI 风格分节标题分两节） |
+| 文件分节标题 | 常量 `PromptManager.DefaultSectionHeader`（`[普通模式提示词]`）与 `PromptManager.GlossarySectionHeader`（`[自动术语表模式提示词]`）：标题行之下到下一个标题之前为对应分节 |
 | 占位符替换 | `{{SOURCE_LAN}}` → 源语言，`{{TARGET_LAN}}` → 目标语言；`{{GLOSSARY}}` 由 GlossaryManager 运行时填充 |
-| 首次开启 | 自动创建含两套内建默认提示词（用 `SectionSeparator` 分节）的模板文件，方便用户修改 |
-| `LoadPromptSection()` | 通用加载逻辑：customPrompt=false 用默认，true 时按 `wantGlossary` 选取对应分节（找不到分隔符的旧文件会回退/警告） |
+| 首次开启 | 自动创建含两套内建默认提示词（用 `DefaultSectionHeader` / `GlossarySectionHeader` 分节）的模板文件，方便用户修改 |
+| `LoadPromptSection()` | 通用加载逻辑：customPrompt=false 用默认，true 时按 `wantGlossary` 选取对应分节（按 INI 风格分节标题切分；检测到无分节标题的最旧版单节文件会自动重写为新版 INI 分节格式） |
 
 ### 4. `Models.cs`（72 行）
 
@@ -315,7 +315,7 @@ LlmResult Translate(string url, string apiKey, string model,
 4. `HalfWidth` 默认 true（全角符号转半角）
 5. 日志等级不本地控制，统一经 `XuaLogger.AutoTranslator` 转发，由 BepInEx 的 listener 按 `BepInEx.cfg` 过滤
 6. `MaxContext` 双重角色：控制对话历史上限 + 单批次 token 上限
-7. `AutoGlossary` 与 `CustomPrompt` 独立：CustomPrompt 控制单一自定义提示词文件 `AutoLLM_CustomPrompt.txt`（含分隔符的两节），AutoGlossary 控制从该文件读取哪一节（普通/术语表）；两套开关独立
+7. `AutoGlossary` 与 `CustomPrompt` 独立：CustomPrompt 控制单一自定义提示词文件 `AutoLLM_CustomPrompt.txt`（用 INI 风格分节标题分两节），AutoGlossary 控制从该文件读取哪一节（普通/术语表）；两套开关独立
 
 ### 术语表约定
 

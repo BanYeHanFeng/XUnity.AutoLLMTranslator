@@ -80,10 +80,10 @@
 | URL | | 接口网址。以`/v1`或`/v1/`后缀则自动补全至`/v1/chat/completions` |
 | APIKey | | 接口密钥 |
 | ModelParams | | 自定义模型参数，如：`{"temperature":0.3}` |
-| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按 1 字符~ 0.75 token)。超限时分三种情况处理：①清空对话历史 ②超出部分分配到下一批 ③单条仍超出则丢弃并记录日志 |
+| MaxContext | `4096` | 上下文最大Token数。自动估算每条文本的 Token 消耗(收到 API 返回后校准,否则按 1 字符~ 0.75 token)。超限时分三种情况处理：①清空对话历史 ②超出部分分配到下一批 ③单条超出则丢弃并记录日志 |
 | MaxRetry | `5` | 最大重试次数 |
-| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt`，有两套提示词，①是普通系统提示词，②是开启自动术语表后的系统提示词|
-| AutoGlossary | `False` | 是否开启自动术语表，开启后 配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_Glossary.json`，①模型在翻译同时输出新术语 ②术语表通过占位符的方式进行注入，③每批有新术语即写入文件（防游戏意外停止丢失），④等待历史对话清空后注入新的术语 |
+| CustomPrompt | `False` | 是否开启自定义提示词，开启后配置生成在`游戏根目录/BepInEx/config/AutoLLM_CustomPrompt.txt`，有两套提示词，`[普通模式提示词]` 下为普通系统提示词，`[自动术语表模式提示词]` 下为开启自动术语表后的系统提示词|
+| AutoGlossary | `False` | 是否开启自动术语表，开启后配置文件生成在`游戏根目录/BepInEx/config/AutoLLM_Glossary.json`，①模型在翻译同时解析新术语 ②术语表通过系统提示词的占位符的方式进行注入，仅在空历史的情况下注入 |
 | HalfWidth | `True` | 是否将全角字符转换为半角 |
 | DisableSpamChecks | `True` | 是否禁用 AutoTranslator 框架垃圾检查 |
 | ~~LogLevel~~ | 已移除 | ~~日志等级~~，由`BepInEx.cfg`控制 |

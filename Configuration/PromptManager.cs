@@ -43,14 +43,18 @@ internal static class PromptManager
 {{GLOSSARY}}";
 
     /// <summary>
-    /// 自定义提示词文件中的分节分隔符。
-    /// 文件被此分隔符划分为两节：
-    ///   - 分隔符之前：普通模式（AutoGlossary=false 时使用）
-    ///   - 分隔符之后：术语表模式（AutoGlossary=true 时使用，应含 {{GLOSSARY}} 占位符）
-    /// 首次创建模板文件时，分隔符两侧分别写入 Default 与 Glossary。
+    /// 自定义提示词文件中的【普通模式】分节标题（INI 风格，独占一行）。
+    /// 该标题行之下、下一个分节标题之前的内容即普通模式提示词
+    /// （AutoGlossary=false 时使用）。
     /// </summary>
-    public const string SectionSeparator =
-        "# ===== AutoLLM.AutoGlossary=true 以下为术语表模式提示词（其上为普通模式） =====";
+    public const string DefaultSectionHeader = "[普通模式提示词]";
+
+    /// <summary>
+    /// 自定义提示词文件中的【术语表模式】分节标题（INI 风格，独占一行）。
+    /// 该标题行之下、文件结尾之前的内容即术语表模式提示词
+    /// （AutoGlossary=true 时使用，应含 {{GLOSSARY}} 占位符）。
+    /// </summary>
+    public const string GlossarySectionHeader = "[自动术语表模式提示词]";
 
     /// <summary>自定义提示词单一文件名。</summary>
     private const string CustomPromptFileName = "AutoLLM_CustomPrompt.txt";
@@ -102,14 +106,20 @@ internal static class PromptManager
 
     /// <summary>
     /// 从单一自定义提示词文件加载并按 wantGlossary 选取对应分节。
+    /// 文件采用 INI 风格分节，标题独占一行：
+    ///   [普通模式提示词]
+    ///   <普通模式提示词>
+    ///
+    ///   [自动术语表模式提示词]
+    ///   <术语表模式提示词>
     /// 行为：
     ///   - CustomPrompt=false：直接用 defaultPrompt（不读文件）
     ///   - CustomPrompt=true：读 AutoLLM_CustomPrompt.txt
-    ///       * 文件不存在：以 Default + 分隔符 + Glossary 顺序写入后，
+    ///       * 文件不存在：以 DefaultSectionHeader / GlossarySectionHeader 分节写入模板后，
     ///         按 wantGlossary 返回对应默认值
-    ///       * 文件存在：
-    ///         - 含分隔符 → 按 wantGlossary 返回对应分节（分节为空回退到对应 Default/Glossary）
-    ///         - 不含分隔符（兼容旧单节文件）→ 整文件作普通模式提示词；术语表模式回退 Glossary
+    ///       * 文件存在且含分节标题 → 按 wantGlossary 返回对应分节（分节为空回退到对应 Default/Glossary）
+    ///       * 文件存在但无分节标题（最旧版整文件即提示词）→ 视整文件为普通模式提示词，
+    ///         重写为 INI 分节格式（普通节=旧内容，术语表节=内建 Glossary），按 wantGlossary 返回对应内容
     ///   - BepInExRoot 缺失：回退 defaultPrompt
     /// </summary>
     private static string LoadPromptSection(AutoLLMConfig config, bool wantGlossary, string defaultPrompt)
@@ -136,9 +146,10 @@ internal static class PromptManager
             try
             {
                 Directory.CreateDirectory(Path.Combine(config.BepInExRoot!, "config"));
-                var template = Default + "\n\n" + SectionSeparator + "\n\n" + Glossary;
+                var template = DefaultSectionHeader + "\n" + Default + "\n\n"
+                    + GlossarySectionHeader + "\n" + Glossary;
                 File.WriteAllText(path, template, Encoding.UTF8);
-                Logger.Info("已创建自定义系统提示词模板（含普通/术语表两节）: " + path);
+                Logger.Info("已创建自定义系统提示词模板（INI 风格，普通/术语表两节）: " + path);
             }
             catch (Exception ex)
             {
@@ -154,30 +165,42 @@ internal static class PromptManager
             var content = File.ReadAllText(path, Encoding.UTF8);
             Logger.Info("已加载自定义系统提示词: " + path);
 
-            int sepIdx = content.IndexOf(SectionSeparator, StringComparison.Ordinal);
-            if (sepIdx < 0)
-            {
-                // 兼容旧版本单节文件：没有分隔符
-                if (wantGlossary)
-                {
-                    Logger.Warn("自定义提示词文件缺少分节标记（\"" + SectionSeparator + "\"），" +
-                        "术语表模式无法定位术语表分节，回退到内建术语表默认提示词。" +
-                        "如需自定义，请按模板格式补充分节（普通模式段在上，术语表模式段在下）。");
-                    return Glossary;
-                }
-                // 普通模式：整文件作提示词
-                return content;
-            }
+            // 新格式：按 INI 风格分节标题切分
+            string? defaultPart = ExtractSectionContent(content, DefaultSectionHeader, GlossarySectionHeader);
+            string? glossaryPart = ExtractSectionContent(content, GlossarySectionHeader, null);
 
-            // 含分隔符：分为普通模式段（前）与术语表模式段（后）
-            string defaultPart = content.Substring(0, sepIdx);
-            // 跳过分隔符行：分隔符后通常还有换行，一并去除首部空白/换行
-            string glossaryPart = content.Substring(sepIdx + SectionSeparator.Length);
-            glossaryPart = glossaryPart.TrimStart('\r', '\n');
+            if (defaultPart == null && glossaryPart == null)
+            {
+                // 最旧版格式：整个文件即为普通模式提示词（无分节标题）。
+                // 视旧内容为普通模式提示词，术语表节用内建 Glossary，
+                // 重写为 INI 分节格式后按 wantGlossary 返回对应内容。
+                var oldPrompt = content.Trim('\r', '\n', ' ', '\t');
+                if (oldPrompt.Length == 0)
+                {
+                    Logger.Warn("自定义提示词文件为空，回退到内建默认提示词");
+                    return wantGlossary ? Glossary : Default;
+                }
+
+                Logger.Warn("检测到旧版自定义提示词文件（无分节标题），正在重写为新版 INI 分节格式: " + path);
+                try
+                {
+                    var template = DefaultSectionHeader + "\n" + oldPrompt + "\n\n"
+                        + GlossarySectionHeader + "\n" + Glossary;
+                    File.WriteAllText(path, template, Encoding.UTF8);
+                    Logger.Info("已将旧版自定义提示词重写为 INI 分节格式: " + path);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("重写旧版自定义提示词文件失败（本次仍按旧内容返回）", ex);
+                }
+
+                defaultPart = oldPrompt;
+                glossaryPart = Glossary;
+            }
 
             if (wantGlossary)
             {
-                if (string.IsNullOrEmpty(glossaryPart) || glossaryPart.Trim().Length == 0)
+                if (glossaryPart == null || glossaryPart.Trim().Length == 0)
                 {
                     Logger.Warn("自定义提示词文件术语表分节为空，回退到内建术语表默认提示词");
                     return Glossary;
@@ -186,7 +209,7 @@ internal static class PromptManager
             }
             else
             {
-                if (string.IsNullOrEmpty(defaultPart) || defaultPart.Trim().Length == 0)
+                if (defaultPart == null || defaultPart.Trim().Length == 0)
                 {
                     Logger.Warn("自定义提示词文件普通模式分节为空，回退到内建默认提示词");
                     return Default;
@@ -199,6 +222,67 @@ internal static class PromptManager
             Logger.Error("读取自定义系统提示词失败", ex);
             return defaultPrompt;
         }
+    }
+
+    /// <summary>
+    /// 提取 INI 风格分节标题之间的内容。
+    /// 返回 <paramref name="sectionHeader"/> 标题行之后、<paramref name="nextHeader"/> 标题行之前
+    /// （或文件末尾，当 <paramref name="nextHeader"/> 为 null 时）的内容。
+    /// 分节标题须独占一行（行内仅可有可选空白与可选前导注释符 '#'）；找不到返回 null。
+    /// 返回内容已去除首尾空白/换行。
+    /// </summary>
+    private static string? ExtractSectionContent(string content, string sectionHeader, string? nextHeader)
+    {
+        // 按行拆分（保留原样，仅统一行尾以便行内匹配）
+        var lines = content.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        int contentStart = -1;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (IsSectionHeaderLine(lines[i], sectionHeader))
+            {
+                contentStart = i + 1;
+                break;
+            }
+        }
+        if (contentStart < 0) return null;
+
+        int contentEnd = lines.Length;
+        if (nextHeader != null)
+        {
+            for (int i = contentStart; i < lines.Length; i++)
+            {
+                if (IsSectionHeaderLine(lines[i], nextHeader))
+                {
+                    contentEnd = i;
+                    break;
+                }
+            }
+        }
+
+        // 拼接 [contentStart, contentEnd) 行，去除首尾空行
+        var sb = new StringBuilder();
+        for (int i = contentStart; i < contentEnd; i++)
+        {
+            sb.Append(lines[i]);
+            if (i < contentEnd - 1) sb.Append('\n');
+        }
+        return sb.ToString().Trim('\n', ' ', '\t');
+    }
+
+    /// <summary>
+    /// 判断一行是否为分节标题行。
+    /// 允许前后空白，且允许可选前导注释符 '#' 使标题行形如 "  # [普通模式提示词]"。
+    /// 标题文本必须独占该行（标题之后不得有其它非空白字符）。
+    /// </summary>
+    private static bool IsSectionHeaderLine(string line, string header)
+    {
+        var trimmed = line.Trim(' ', '\t');
+        if (trimmed.StartsWith("#", StringComparison.Ordinal))
+        {
+            trimmed = trimmed.Substring(1).TrimStart(' ', '\t');
+        }
+        return trimmed == header;
     }
 
     /// <summary>将 CRLF 和孤立 CR 统一为 LF。先处理 CRLF 再处理 CR，避免重复换行。</summary>

@@ -81,10 +81,10 @@
 | URL | | API endpoint. If suffixed with `/v1` or `/v1/`, it is auto-completed to `/v1/chat/completions` |
 | APIKey | | API key |
 | ModelParams | | Custom model parameters, e.g., `{"temperature":0.3}` |
-| MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text still exceeds, it is discarded and logged |
+| MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text exceeds, it is discarded and logged |
 | MaxRetry | `5` | Maximum retry attempts |
-| CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt`, which contains two sets of prompts: ① Normal system prompt ② System prompt for when automatic glossary is enabled |
-| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_Glossary.json`. ① The model outputs new terms alongside translations ② Glossary is injected via placeholder ③ New terms are written to file on each batch (prevents loss on unexpected game stop) ④ New terms are injected after conversation history is cleared |
+| CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt`, which uses INI-style section headers: the content under `[普通模式提示词]` is the normal system prompt, and the content under `[自动术语表模式提示词]` is the system prompt used when automatic glossary is enabled |
+| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_Glossary.json`. ① The model parses new terms alongside translations ② Glossary is injected via placeholder in the system prompt, only injected when history is empty |
 | HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
 | DisableSpamChecks | `True` | Whether to disable AutoTranslator framework spam checks |
 | ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |
