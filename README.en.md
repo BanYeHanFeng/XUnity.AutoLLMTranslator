@@ -84,7 +84,7 @@
 | MaxContext | `4096` | Maximum context token count. Automatically estimates token consumption per text (calibrated after receiving API response; otherwise estimated at ~0.75 token per character). When exceeded, three scenarios apply: ① Clear conversation history ② Overflow distributed to next batch ③ If a single text still exceeds, it is discarded and logged |
 | MaxRetry | `5` | Maximum retry attempts |
 | CustomPrompt | `False` | Whether to enable custom prompts. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_CustomPrompt.txt`, which contains two sets of prompts: ① Normal system prompt ② System prompt for when automatic glossary is enabled |
-| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_Glossary.txt`. ① The model outputs new terms alongside translations ② Glossary is injected via placeholder ③ New terms are merged after conversation history is cleared |
+| AutoGlossary | `False` | Whether to enable automatic glossary. When enabled, the config file is generated at `GameRoot/BepInEx/config/AutoLLM_Glossary.json`. ① The model outputs new terms alongside translations ② Glossary is injected via placeholder ③ New terms are written to file on each batch (prevents loss on unexpected game stop) ④ New terms are injected after conversation history is cleared |
 | HalfWidth | `True` | Whether to convert fullwidth characters to halfwidth |
 | DisableSpamChecks | `True` | Whether to disable AutoTranslator framework spam checks |
 | ~~LogLevel~~ | Removed | ~~Log level~~. Controlled by `BepInEx.cfg` |

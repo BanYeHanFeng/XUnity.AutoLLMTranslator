@@ -305,9 +305,8 @@ internal class TranslationOrchestrator
             Dictionary<string, object>? glossaryObj;
             int completed = BatchResponseParser.ParseAndDispatch(result, batch, _config, out glossaryObj);
 
-            // 术语表模式：收集本轮新术语（暂存内存）
-            // ParallelCount 已废弃固定为 1，落盘统一走对话历史清空路径(OnHistoryCleared)，
-            // 避免每批都做文件 I/O。
+            // 术语表模式：收集本轮新术语（每批有新术语即落盘，防止游戏意外停止丢失；
+            // 暂存内存 _pendingNew，仅历史对话清空后才注入 _glossary 进系统提示词）
             if (_config.AutoGlossary && _glossary != null && glossaryObj != null)
             {
                 _glossary.AddPendingTerms(glossaryObj);
@@ -422,14 +421,14 @@ internal class TranslationOrchestrator
 
     /// <summary>
     /// 历史清空后的术语表维护：
-    /// 1. 将本轮收集的新术语合并到文件
+    /// 1. 将本轮收集的暂存术语注入 _glossary（文件已由每批即时落盘，此处仅做内存合并）
     /// 2. 用合并后的术语表重建系统提示词并更新 token 估算基线
-    /// ParallelCount 已废弃固定为 1，对话历史始终启用，故本方法为唯一落盘路径。
+    /// ParallelCount 已废弃固定为 1，对话历史始终启用。
     /// </summary>
     private void OnHistoryCleared()
     {
         if (!_config.AutoGlossary || _glossary == null) return;
-        int added = _glossary.MergePendingAndSave();
+        int added = _glossary.MergePending();
         if (added > 0)
         {
             // 术语表变化 → 系统提示词变长 → 更新基线 token 估算

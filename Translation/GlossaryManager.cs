@@ -49,7 +49,10 @@ internal class GlossaryManager
     }
 
     /// <summary>
-    /// 记录本轮从模型响应中提取的新术语（暂存内存，不立即写文件）。
+    /// 记录本轮从模型响应中提取的新术语到内存缓冲 _pendingNew，并立即全量落盘。
+    /// 每批有新术语即写文件（_glossary + _pendingNew 合并视图），防止游戏意外停止导致丢失。
+    /// 新术语仅暂存 _pendingNew，<b>不</b>合并进 _glossary；只有对话历史清空时才由 MergePending
+    /// 注入 _glossary（进而更新系统提示词），以保证一轮对话上下文内术语表保持一致。
     /// 重复术语以新值为准（模型可能在后续翻译中修正译名）。
     /// </summary>
     public void AddPendingTerms(Dictionary<string, object>? glossaryFromModel)
@@ -57,22 +60,36 @@ internal class GlossaryManager
         if (!Enabled || glossaryFromModel == null || glossaryFromModel.Count == 0) return;
         lock (_lock)
         {
+            bool anyNew = false;
             foreach (var kvp in glossaryFromModel)
             {
                 string? translated = kvp.Value as string;
                 if (string.IsNullOrEmpty(kvp.Key) || string.IsNullOrEmpty(translated)) continue;
-                _pendingNew[kvp.Key] = translated!;
+                // 仅当键新增或值变化时算作新条目（避免无变化时反复写盘）
+                if (!_pendingNew.TryGetValue(kvp.Key, out var existing) || existing != translated)
+                {
+                    _pendingNew[kvp.Key] = translated!;
+                    anyNew = true;
+                }
+            }
+            if (anyNew)
+            {
+                // 立即落盘 _glossary + _pendingNew 全量（pending 覆盖同名旧值）
+                SaveToFile();
+                Logger.Info("术语表已即时落盘(防丢失): 暂存" + _pendingNew.Count +
+                    "条(待历史清空后注入), 文件共" + (_glossary.Count + _pendingNew.Count) + "条");
             }
         }
     }
 
     /// <summary>
-    /// 将 pending 新术语合并到文件并重载。
-    /// 在对话历史清空时调用：历史清空意味着上下文重置，此时把本轮收集的术语落盘
-    /// （ParallelCount 已废弃固定为 1，本方法是唯一落盘路径，避免每批都做文件 I/O）。
+    /// 将缓冲中的新术语注入 _glossary（使其进入系统提示词）。
+    /// 在对话历史清空时调用：历史清空意味着上下文重置，此时把暂存术语并入 _glossary，
+    /// 让后续新对话使用更新后的术语表。
+    /// 文件已由 AddPendingTerms 每批即时落盘，此处仅做内存合并，无需再写文件。
     /// 返回新增条目数（含更新）。
     /// </summary>
-    public int MergePendingAndSave()
+    public int MergePending()
     {
         if (!Enabled) return 0;
         lock (_lock)
@@ -91,10 +108,7 @@ internal class GlossaryManager
             _pendingNew.Clear();
 
             if (added > 0)
-            {
-                SaveToFile();
-                Logger.Info("术语表已更新: +" + added + " 条, 共" + _glossary.Count + "条");
-            }
+                Logger.Info("术语表已注入: +" + added + " 条, 共" + _glossary.Count + "条");
             return added;
         }
     }
@@ -148,9 +162,13 @@ internal class GlossaryManager
     {
         try
         {
-            // 序列化为 {"原文":"译文"} 格式
+            // 序列化为 {"原文":"译文"} 格式。
+            // 写入 _glossary + _pendingNew 的合并视图（pending 覆盖同名旧值），
+            // 这样每批新增的暂存术语即便尚未注入 _glossary 也能落盘，防止游戏意外停止丢失。
             var dict = new Dictionary<string, object>();
             foreach (var kvp in _glossary)
+                dict[kvp.Key] = kvp.Value;
+            foreach (var kvp in _pendingNew)
                 dict[kvp.Key] = kvp.Value;
             var json = SimpleJson.Serialize(dict);
             File.WriteAllText(_filePath!, json, Encoding.UTF8);

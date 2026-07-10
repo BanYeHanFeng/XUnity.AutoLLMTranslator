@@ -28,14 +28,14 @@ XUnity.AutoLLMTranslator/
 │   ├── AutoLLMConfig.cs              # 配置读取、验证、预处理
 │   └── PromptManager.cs              # 系统提示词构建 + 内建默认提示词常量（Default/Glossary）；单文件 AutoLLM_CustomPrompt.txt 含分隔符的两节
 ├── Orchestration/
-│   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理、术语表集成
+│   ├── TranslationOrchestrator.cs    # 核心调度引擎：工作线程、批次处理、术语表集成（每批即时落盘 + 历史清空注入）
 │   ├── BatchResponseParser.cs        # LLM 响应解析 → 译文分发到批内任务（含全角转半角）
 │   ├── TaskQueue.cs                  # 线程安全任务队列（AutoResetEvent 信号）
 │   └── Guards.cs                     # RetryHandler（重试策略）+ RateLimitGuard（指数退避限速，5s→10s→…→60s）
 ├── Translation/
 │   ├── LlmClient.cs                  # LLM API 客户端接口 ILlmClient + 实现：HttpWebRequest + SSE 流解析
 │   ├── ConversationHistory.cs        # 对话历史管理（线程安全，chars×0.75 估算 + API 精确追踪）
-│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语缓冲 + 历史清空时落盘）
+│   └── GlossaryManager.cs            # 自动术语表管理（文件读写 + 新术语每批即时落盘 + 历史清空时注入系统提示词）
 ├── Models.cs                         # 数据模型：LlmMessage, LlmResult, LlmUsage, TaskState, TranslationTask
 ├── SimpleJson.cs                     # 零依赖 JSON 序列化/解析器
 ├── Logger.cs                         # 日志封装（委托给 XuaLogger.AutoTranslator + [AutoLLM] 标签）
@@ -144,7 +144,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `ProcessBatch()` | 批次翻译核心流程（见下）；响应解析/分发/全角半角交由 `BatchResponseParser` |
 | `SelectBatch()` | Token 感知选批：超限走「下一句截断」/「单条丢弃」/「清空历史后纳入」三条分支 |
 | `BuildInputJson()` | 构建 `{"1":"原文1","2":"原文2"}` 格式 JSON |
-| `OnHistoryCleared()` | 历史清空后合并术语表到文件 + 更新系统提示词 token 估算（仅 AutoGlossary，ParallelCount 已固定为 1，为本项目唯一术语表落盘路径） |
+| `OnHistoryCleared()` | 历史清空后将暂存术语注入 `_glossary`（`MergePending`，仅内存合并）+ 更新系统提示词 token 估算（仅 AutoGlossary） |
 | Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens`（`Interlocked.Add` 累加） |
 
 **ProcessBatch 流程**：
@@ -152,7 +152,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 2. 构建系统提示词：AutoGlossary 时用 `GlossaryManager.BuildSystemPrompt()`（含术语表），否则用 `CachedSystemPrompt`
 3. `_history.BuildMessages()` 组装 [system, ...history, user]
 4. `_llmClient.Translate()` 同步阻塞调用（net35 限制）
-5. 成功：`_rateLimitGuard.Reset()` → `BatchResponseParser.ParseAndDispatch()` 解析+分发+全角半角 → `AddPendingTerms` 收集新术语（落盘统一走 `OnHistoryCleared`，避免每批文件 I/O） → `RecordApiUsage` + `RecordExchange`
+5. 成功：`_rateLimitGuard.Reset()` → `BatchResponseParser.ParseAndDispatch()` 解析+分发+全角半角 → `AddPendingTerms` 收集新术语并即时全量落盘（每批有新术语即写文件，防止意外停止丢失；新术语暂不进系统提示词） → `RecordApiUsage` + `RecordExchange`
 6. 失败(429)：`_rateLimitGuard.OnRateLimited()`，`ReEnqueue`（不消耗重试次数）
 7. 失败(其他)：`_retryHandler.ShouldRetry()` → IncrementRetry → ReEnqueue，超限则 MarkFailed
 
@@ -245,13 +245,13 @@ LlmResult Translate(string url, string apiKey, string model,
 
 | 要点 | 说明 |
 |---|---|
-| 文件路径 | `{BepInExRoot}/config/AutoLLM_Glossary.txt`（JSON 格式 `{"原文":"译文"}`） |
+| 文件路径 | `{BepInExRoot}/config/AutoLLM_Glossary.json`（JSON 格式 `{"原文":"译文"}`） |
 | 线程安全 | `lock(_lock)` 保护 `_glossary` 与 `_pendingNew` |
-| `RenderForPrompt()` | 渲染术语表为提示词文本（每行 `原文 => 译文`），无术语返回 `（无）` |
+| `RenderForPrompt()` | 渲染术语表为提示词文本（每行 `原文 => 译文`），无术语返回 `（无）`；仅渲染已注入的 `_glossary`，不含暂存 `_pendingNew` |
 | `BuildSystemPrompt()` | 将术语表内容填入模板的 `{{GLOSSARY}}` 占位符，返回完整系统提示词 |
-| `AddPendingTerms()` | 收集模型响应中的 glossary 到内存缓冲 `_pendingNew`（不立即写文件） |
-| `MergePendingAndSave()` | 将缓冲新术语合并到 `_glossary` 并写入文件，返回新增条目数 |
-| 落盘时机 | 由 Orchestrator 调用 `MergePendingAndSave()`：ParallelCount 已固定为 1，在对话历史清空时调用（`OnHistoryCleared`），避免每批文件 I/O |
+| `AddPendingTerms()` | 收集模型响应中的 glossary 到内存缓冲 `_pendingNew`，并立即全量落盘 `_glossary + _pendingNew`（每批有新术语即写文件，防止意外丢失）；新术语暂不进 `_glossary`，故不进系统提示词 |
+| `MergePending()` | 历史清空时调用：将暂存新术语注入 `_glossary`（从而进入系统提示词）；文件已由每批即时落盘，此处仅做内存合并，返回新增条目数 |
+| 落盘时机 | 由 Orchestrator 调 `AddPendingTerms()` 每批即时落盘（防游戏意外停止丢失）；`MergePending()` 仅在对话历史清空时（`OnHistoryCleared`）做内存合并注入 `_glossary`，不再写文件 |
 | 首次运行 | 自动创建空 `{}` 文件 |
 
 ### 12. `SimpleJson.cs`（258 行）
@@ -319,10 +319,10 @@ LlmResult Translate(string url, string apiKey, string model,
 
 ### 术语表约定
 
-1. **术语表文件**：`{BepInExRoot}/config/AutoLLM_Glossary.txt`，JSON 格式 `{"原文":"译文"}`
+1. **术语表文件**：`{BepInExRoot}/config/AutoLLM_Glossary.json`，JSON 格式 `{"原文":"译文"}`
 2. **术语表位置**：作为系统提示词的一部分（拼接到 `{{GLOSSARY}}` 占位符后），不作为独立 system 消息——保持缓存前缀稳定
-3. **更新时机**：ParallelCount 固定为 1，仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）合并落盘
-4. **新术语缓冲**：`BatchResponseParser.ParseAndDispatch` 解析响应 glossary 字段并通过 `out` 返回，由 Orchestrator 调 `AddPendingTerms` 存入内存 `_pendingNew`，不立即写文件
+3. **更新时机**：每批有新术语即落盘（`AddPendingTerms`，防止游戏意外停止丢失）；但仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）才由 `MergePending` 注入 `_glossary`，保证一轮对话上下文内系统提示词稳定
+4. **新术语缓冲**：`BatchResponseParser.ParseAndDispatch` 解析响应 glossary 字段并通过 `out` 返回，由 Orchestrator 调 `AddPendingTerms` 存入内存 `_pendingNew` 并即时全量落盘（`_glossary + _pendingNew` 合并视图），新术语暂不进 `_glossary`，故暂不进系统提示词
 5. **向后兼容**：`AutoGlossary=false` 时模型输出 `{"1":"译文"}` 扁平结构；`AutoGlossary=true` 时输出 `{"translations":{"1":"译文"},"glossary":{...}}` 嵌套结构
 6. **Token 估算**：术语表合并后系统提示词变长，`ConversationHistory.UpdateSystemPrompt()` 重置基线 token
 

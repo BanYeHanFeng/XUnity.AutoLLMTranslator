@@ -55,8 +55,8 @@ internal static class PromptManager
     /// <summary>自定义提示词单一文件名。</summary>
     private const string CustomPromptFileName = "AutoLLM_CustomPrompt.txt";
 
-    /// <summary>术语表数据文件名。</summary>
-    private const string GlossaryFileName = "AutoLLM_Glossary.txt";
+    /// <summary>术语表数据文件名（JSON 格式存储原文⇒译文映射）。</summary>
+    private const string GlossaryFileName = "AutoLLM_Glossary.json";
 
     /// <summary>
     /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的【普通模式】系统提示词（不含 {{GLOSSARY}} 占位符）。
