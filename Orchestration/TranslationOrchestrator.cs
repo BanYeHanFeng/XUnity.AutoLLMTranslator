@@ -268,14 +268,14 @@ internal class TranslationOrchestrator
                      .Append(" 选取").Append(batch.Count).Append("条(").Append(totalChars)
                      .Append("字符) 上下文").Append(ctxTokens).Append("/").Append(_config.MaxContext)
                      .Append(" 排队").Append(waitMs).Append("ms 历史").Append(turnCount).Append("轮")
-                     .Append(" | 实际输入: ");
+                     .Append("\n  实际输入: ");
                 if (firstTurn)
                     trace.Append("系统:").Append(Flatten(systemPrompt))
                          .Append(" | 用户:").Append(Flatten(inputJson));
                 else
                     trace.Append("用户:").Append(Flatten(inputJson));
-                trace.Append(" | 输出: ").Append(Flatten(result.FullResponse))
-                     .Append(" | 耗时").Append(result.ElapsedMs).Append("ms ");
+                trace.Append("\n  输出: ").Append(Flatten(result.FullResponse))
+                     .Append("\n  耗时").Append(result.ElapsedMs).Append("ms ");
                 if (estimated)
                     trace.Append("输入~").Append(inTok).Append("tokens(估算) 输出~")
                          .Append(outTok).Append("tokens(估算)");
