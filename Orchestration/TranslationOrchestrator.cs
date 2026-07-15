@@ -268,14 +268,14 @@ internal class TranslationOrchestrator
                      .Append(" 选取").Append(batch.Count).Append("条(").Append(totalChars)
                      .Append("字符) 上下文").Append(ctxTokens).Append("/").Append(_config.MaxContext)
                      .Append(" 排队").Append(waitMs).Append("ms 历史").Append(turnCount).Append("轮")
-                     .Append("\n  实际输入: ");
+                     .Append(" | 实际输入: ");
                 if (firstTurn)
-                    trace.Append("系统:").Append(systemPrompt)
-                         .Append(" | 用户:").Append(inputJson);
+                    trace.Append("系统:").Append(Flatten(systemPrompt))
+                         .Append(" | 用户:").Append(Flatten(inputJson));
                 else
-                    trace.Append("用户:").Append(inputJson);
-                trace.Append("\n  输出: ").Append(result.FullResponse)
-                     .Append("\n  耗时").Append(result.ElapsedMs).Append("ms ");
+                    trace.Append("用户:").Append(Flatten(inputJson));
+                trace.Append(" | 输出: ").Append(Flatten(result.FullResponse))
+                     .Append(" | 耗时").Append(result.ElapsedMs).Append("ms ");
                 if (estimated)
                     trace.Append("输入~").Append(inTok).Append("tokens(估算) 输出~")
                          .Append(outTok).Append("tokens(估算)");
@@ -438,6 +438,16 @@ internal class TranslationOrchestrator
     }
 
     /// <summary>截断文本用于日志输出，避免打印超长内容。</summary>
+    /// <summary>
+    /// 将字符串中的换行符转义为字面量 \n，使日志输出保持单行；
+    /// 调用轨迹里输入/输出可能内含换行（如美化后的 JSON），统一扁平化以便检索。
+    /// </summary>
+    private static string Flatten(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? "";
+        return text.Replace("\r\n", "\\n").Replace("\r", "\\n").Replace("\n", "\\n");
+    }
+
     private static string Truncate(string text, int maxLen)
     {
         if (string.IsNullOrEmpty(text)) return "";
