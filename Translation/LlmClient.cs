@@ -67,6 +67,7 @@ internal class LlmClient : ILlmClient
         using (var reader = new StreamReader(stream))
         {
             var fullResponse = new StringBuilder();
+            var reasoningAccum = new StringBuilder();
             var usage = new Dictionary<string, object>();
             int chunks = 0;
             bool done = false;
@@ -80,9 +81,11 @@ internal class LlmClient : ILlmClient
                 string data = line.Substring(5).TrimStart();
                 if (data == "[DONE]") { done = true; break; }
                 chunks++;
-                SimpleJson.ParseSseChunk(data, out string? content, out Dictionary<string, object>? u);
+                SimpleJson.ParseSseChunk(data, out string? content, out string? reasoningContent, out Dictionary<string, object>? u);
                 if (!string.IsNullOrEmpty(content))
                     fullResponse.Append(content);
+                if (!string.IsNullOrEmpty(reasoningContent))
+                    reasoningAccum.Append(reasoningContent);
                 if (u != null) usage = u;
             }
 
@@ -95,7 +98,8 @@ internal class LlmClient : ILlmClient
                 FullResponse = fullResponse.ToString(),
                 ChunkCount = chunks,
                 DoneReceived = done,
-                ElapsedMs = Environment.TickCount - startTick
+                ElapsedMs = Environment.TickCount - startTick,
+                Reasoning = reasoningAccum.ToString()
             };
 
             // 5. 提取 token 用量

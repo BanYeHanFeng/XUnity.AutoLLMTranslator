@@ -15,6 +15,10 @@ internal class LlmResult
     public int ChunkCount { get; set; }
     public bool DoneReceived { get; set; }
     public long ElapsedMs { get; set; }
+
+    // 模型思考过程（reasoning_content），仅用于调用轨迹日志核实模型锚定/续写行为，
+    // 不参与 token 统计与对话历史记录。无思考输出的模型为空字符串。
+    public string Reasoning { get; set; } = "";
 }
 
 internal class LlmUsage

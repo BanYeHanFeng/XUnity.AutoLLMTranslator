@@ -94,10 +94,12 @@ internal static class SimpleJson
         }
     }
 
-    /// <summary>Parse an SSE chunk once and extract both content and usage, avoiding double parsing.</summary>
-    public static void ParseSseChunk(string json, out string? content, out Dictionary<string, object>? usage)
+    /// <summary>Parse an SSE chunk once and extract content, reasoning and usage, avoiding double parsing.</summary>
+    /// <param name="reasoning">模型思考过程；读取 delta.reasoning_content，兼容部分提供商的 delta.reasoning。无思考输出时为 null。</param>
+    public static void ParseSseChunk(string json, out string? content, out string? reasoning, out Dictionary<string, object>? usage)
     {
         content = null;
+        reasoning = null;
         usage = null;
         try
         {
@@ -105,15 +107,21 @@ internal static class SimpleJson
             var obj = ParseObject(json, ref pos);
             if (obj == null) return;
 
-            // Extract choices[0].delta.content
+            // Extract choices[0].delta.{content, reasoning_content}
             if (obj.TryGetValue("choices", out object choicesObj) && choicesObj is List<object> choices && choices.Count > 0)
             {
                 if (choices[0] is Dictionary<string, object> choice
                     && choice.TryGetValue("delta", out object deltaObj)
-                    && deltaObj is Dictionary<string, object> delta
-                    && delta.TryGetValue("content", out object contentVal))
+                    && deltaObj is Dictionary<string, object> delta)
                 {
-                    content = contentVal as string;
+                    if (delta.TryGetValue("content", out object contentVal))
+                        content = contentVal as string;
+                    // 思考过程：优先 reasoning_content（DeepSeek/部分 OpenAI 兼容服务），
+                    // 兼容个别提供商直接命名为 reasoning。
+                    if (delta.TryGetValue("reasoning_content", out object reasoningVal))
+                        reasoning = reasoningVal as string;
+                    else if (delta.TryGetValue("reasoning", out reasoningVal))
+                        reasoning = reasoningVal as string;
                 }
             }
 

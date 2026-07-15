@@ -249,9 +249,10 @@ internal class TranslationOrchestrator
 
             // ---- LLM 调用轨迹（Debug）----
             // 过滤交由 BepInEx 的 listener 按 BepInEx.cfg 的 LogLevels 处理；
-            // 此处无条件构造并发出，避免本插件与框架重复维护一份日志级别开关。
+// 此处无条件构造并发出，避免本插件与框架重复维护一份日志级别开关。
             // 只记录本轮新输入：首轮含系统提示词(系统:...) + 用户(inputJson)；
-            // 后续轮系统提示词已属历史，仅记录用户新输入。输出为完整 JSON，不截断。
+            // 后续轮系统提示词已属历史，仅记录用户新输入。思考(reasoning_content)置于
+            // 输入与输出之间，输出为完整 JSON，均不截断。
             // 尾行整合耗时/token/缓存/累计；接口未返回 token 时回退字符估算(0.75)。
             {
                 long inTok = result.Usage?.PromptTokens ?? 0;
@@ -274,6 +275,10 @@ internal class TranslationOrchestrator
                          .Append(" | 用户:").Append(Flatten(inputJson));
                 else
                     trace.Append("用户:").Append(Flatten(inputJson));
+                // 思考过程（reasoning_content）：先于输出的内容流式到达，置于输入与输出之间，
+                // 便于和输入/输出对照核实模型锚定/续写之类的行为。无思考输出时省略此行。
+                if (!string.IsNullOrEmpty(result.Reasoning))
+                    trace.Append("\n  思考: ").Append(Flatten(result.Reasoning));
                 trace.Append("\n  输出: ").Append(Flatten(result.FullResponse))
                      .Append("\n  耗时").Append(result.ElapsedMs).Append("ms ");
                 if (estimated)
