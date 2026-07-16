@@ -461,21 +461,21 @@ internal class TranslationOrchestrator
     }
 
     /// <summary>
-    /// 构建 ["原文1","原文2",...] 格式的用户输入 JSON（纯数组）。
-    /// 采用数组（按位置对应）而非数字编号 key：跨批次用相同 "1"/"2" 编号容易让模型
-    /// 把不同批次的同号条目拼成同一对象，进而把历史译文误并入当前输出。
-    /// 数组无显式编号，模型只能按位置一一翻译，避免此类混淆（见 /root/github/1.txt 批次19）。
+    /// 构建 {"texts":["原文1","原文2",...]} 格式的用户输入 JSON。
+    /// 输入与输出均用同一 "texts" 键（键值对应）：跨批次用相同 "1"/"2" 编号容易让模型
+    /// 把不同批次的同号条目拼成同一对象，进而把历史译文误并入当前输出；改为数组按位置
+    /// 对应、并以外层固定键 "texts" 包裹，既无编号混淆又有明确结构锚点。
     /// </summary>
     private static string BuildInputJson(List<string> texts)
     {
         var sb = new StringBuilder();
-        sb.Append('[');
+        sb.Append("{\"texts\":[");
         for (int i = 0; i < texts.Count; i++)
         {
             if (i > 0) sb.Append(',');
             sb.Append(SimpleJson.Serialize(texts[i]));
         }
-        sb.Append(']');
+        sb.Append("]}");
         return sb.ToString();
     }
 }
