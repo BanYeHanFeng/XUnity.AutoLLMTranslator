@@ -74,8 +74,8 @@ internal class TranslationOrchestrator
     {
         while (!_shutdownRequested)
         {
-            // 等待新任务或 50ms 超时（保底轮询）
-            _taskQueue.Signal.WaitOne(50);
+            // 等待新任务或 100ms 超时（兼作沉淀窗口的保底唤醒）
+            _taskQueue.Signal.WaitOne(100);
 
             // 限速检查
             if (_rateLimitGuard.IsBlocked())
@@ -84,6 +84,16 @@ internal class TranslationOrchestrator
             // 并发控制（ParallelCount 已废弃，固定单并发）
             if (_processingCount >= AutoLLMConfig.ParallelCount)
                 continue;
+
+            // 批次沉淀窗口（debounce 100ms）：队列非空时，等到距最近一次入队满 100ms 再取批。
+            // 期间若又有新任务入队，LastEnqueueTick 被刷新，等待自动延后——
+            // 把同一时刻附近逐帧到达的文本聚到一次 LLM 调用，避免单条碎片文本缺少上下文。
+            if (_taskQueue.Count > 0)
+            {
+                int remaining = 100 - unchecked(Environment.TickCount - _taskQueue.LastEnqueueTick);
+                if (remaining > 0)
+                    continue;
+            }
 
             // 积压告警
             int outstanding = _taskQueue.OutstandingCount;
