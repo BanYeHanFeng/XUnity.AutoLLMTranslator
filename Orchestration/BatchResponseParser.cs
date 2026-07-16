@@ -18,9 +18,10 @@ internal static class BatchResponseParser
 
     /// <summary>
     /// 解析 LLM 响应、按需半角化译文、为批内任务标记完成。
+    /// 输入/输出均为数组（按位置对应），不再使用跨批次易混淆的数字编号 key。
     /// </summary>
     /// <param name="result">LLM 调用结果（FullResponse 为完整 JSON）</param>
-    /// <param name="batch">本轮任务（顺序对应 JSON 中的 "1".."N"）</param>
+    /// <param name="batch">本轮任务（顺序对应 JSON 数组中的元素）</param>
     /// <param name="config">配置（用于 AutoGlossary 模式判定与 HalfWidth）</param>
     /// <param name="glossaryObj">术语表模式下，返回本轮新术语映射；否则为 null</param>
     /// <returns>成功标记完成的任务数；抛异常表示解析失败或结果为空</returns>
@@ -35,34 +36,37 @@ internal static class BatchResponseParser
         if (string.IsNullOrEmpty(result.FullResponse))
             throw new Exception("翻译结果为空");
 
-        var resultObj = SimpleJson.ParseJsonObject(result.FullResponse);
-        if (resultObj == null || resultObj.Count == 0)
-            throw new Exception("JSON结果解析失败: " + result.FullResponse);
-
-        // 分发结果：术语表模式用 translations 嵌套结构，否则用扁平数字 key
-        Dictionary<string, object>? translationsObj;
-        if (config.AutoGlossary && resultObj.TryGetValue("translations", out object? tObj)
-            && tObj is Dictionary<string, object> tDict)
+        // 译文列表：术语表模式取 translations 字段（数组）；普通模式顶层即数组
+        List<object> translationsList;
+        if (config.AutoGlossary)
         {
-            translationsObj = tDict;
+            var resultObj = SimpleJson.ParseJsonObject(result.FullResponse);
+            if (resultObj == null || resultObj.Count == 0)
+                throw new Exception("JSON结果解析失败: " + result.FullResponse);
+
+            if (resultObj.TryGetValue("translations", out object? tObj)
+                && tObj is List<object> tList)
+                translationsList = tList;
+            else
+                throw new Exception("结果缺少 translations 数组: " + result.FullResponse);
+
             if (resultObj.TryGetValue("glossary", out object? gObj)
                 && gObj is Dictionary<string, object> gDict)
                 glossaryObj = gDict;
         }
         else
         {
-            // 非术语表模式：整个对象就是译文映射
-            translationsObj = resultObj;
+            // 普通模式：结果顶层为 ["译文1","译文2",...]
+            translationsList = SimpleJson.ParseJsonArray(result.FullResponse);
+            if (translationsList.Count == 0)
+                throw new Exception("JSON数组解析失败: " + result.FullResponse);
         }
 
+        // 数组按位置与 batch 一一对应（无编号，杜绝跨批次同号混淆）
         int completed = 0;
-        foreach (var kvp in translationsObj)
+        for (int i = 0; i < translationsList.Count && i < batch.Count; i++)
         {
-            int index;
-            if (!int.TryParse(kvp.Key, out index)) continue;
-            if (index < 1 || index > batch.Count) continue;
-
-            string translated = (kvp.Value as string) ?? "";
+            string translated = (translationsList[i] as string) ?? "";
             if (string.IsNullOrEmpty(translated)) continue;
 
             // 全角转半角
@@ -70,7 +74,7 @@ internal static class BatchResponseParser
                 translated = HalfWidthRegex.Replace(translated,
                     m => ((char)(m.Value[0] - 0xFEE0)).ToString());
 
-            batch[index - 1].MarkCompleted(translated);
+            batch[i].MarkCompleted(translated);
             completed++;
         }
 

@@ -67,7 +67,7 @@ WorkerLoop (后台线程, IsBackground=true)
   │  DispatchBatches() → DequeueAll() → Token 感知选择
   ▼
 ProcessBatch() (ThreadPool 线程)
-  │  构建 {"1":"原文1","2":"原文2"} JSON
+  │  构建 ["原文1","原文2"] JSON（纯数组按位置对应，不用数字编号）
   │  ConversationHistory.BuildMessages() → [system, history, user]
   │  LlmClient.Translate() → SSE 流式请求 LLM API
   │  BatchResponseParser.ParseAndDispatch() → 解析 JSON + 全角半角 + 分发译文到各 TranslationTask
@@ -143,7 +143,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `DispatchBatches()` | 循环取批直到并发满或队列空，标记 Processing，提交 ThreadPool；历史清空时触发 `OnHistoryCleared` |
 | `ProcessBatch()` | 批次翻译核心流程（见下）；响应解析/分发/全角半角交由 `BatchResponseParser` |
 | `SelectBatch()` | Token 感知选批：超限走「下一句截断」/「单条丢弃」/「清空历史后纳入」三条分支 |
-| `BuildInputJson()` | 构建 `{"1":"原文1","2":"原文2"}` 格式 JSON |
+| `BuildInputJson()` | 构建 `["原文1","原文2"]` 格式 JSON（纯数组按位置对应，不用数字编号，避免跨批次同号混淆） |
 | `OnHistoryCleared()` | 历史清空后将暂存术语注入 `_glossary`（`MergePending`，仅内存合并）+ 更新系统提示词 token 估算（仅 AutoGlossary） |
 | Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens`（`Interlocked.Add` 累加） |
 
@@ -163,7 +163,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 要点 | 说明 |
 |---|---|
 | `HalfWidthRegex` | 静态编译正则，全角符号 `[！-～]` 转半角（偏移 `0xFEE0`）；从 Orchestrator 迁入 |
-| `ParseAndDispatch(result, batch, config, out glossaryObj)` | 校验非空 → `SimpleJson.ParseJsonObject` → 术语表模式取 `translations`/`glossary` 嵌套、否则整对象为译文映射 → 按需全角转半角 → `MarkCompleted` 分发；返回完成数，`out` 暴露本轮新术语 |
+| `ParseAndDispatch(result, batch, config, out glossaryObj)` | 校验非空 → 术语表模式 `ParseJsonObject` 取 `translations`(数组)/`glossary` 嵌套、否则 `ParseJsonArray` 取顶层译文数组 → 按位置与 batch 一一对应 → 按需全角转半角 → `MarkCompleted` 分发；返回完成数，`out` 暴露本轮新术语 |
 | 文本超限/单条丢弃 | 仍由 Orchestrator 的 `SelectBatch` 负责，本类只处理已成功返回的响应 |
 
 ### 7. `Orchestration/TaskQueue.cs`（119 行）
@@ -323,7 +323,7 @@ LlmResult Translate(string url, string apiKey, string model,
 2. **术语表位置**：作为系统提示词的一部分（拼接到 `{{GLOSSARY}}` 占位符后），不作为独立 system 消息——保持缓存前缀稳定
 3. **更新时机**：每批有新术语即落盘（`AddPendingTerms`，防止游戏意外停止丢失）；但仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）才由 `MergePending` 注入 `_glossary`，保证一轮对话上下文内系统提示词稳定
 4. **新术语缓冲**：`BatchResponseParser.ParseAndDispatch` 解析响应 glossary 字段并通过 `out` 返回，由 Orchestrator 调 `AddPendingTerms` 存入内存 `_pendingNew` 并即时全量落盘（`_glossary + _pendingNew` 合并视图），新术语暂不进 `_glossary`，故暂不进系统提示词
-5. **向后兼容**：`AutoGlossary=false` 时模型输出 `{"1":"译文"}` 扁平结构；`AutoGlossary=true` 时输出 `{"translations":{"1":"译文"},"glossary":{...}}` 嵌套结构
+5. **向后兼容**：`AutoGlossary=false` 时模型输出 `["译文"]` 顶层数组；`AutoGlossary=true` 时输出 `{"translations":["译文"],"glossary":{...}}` 嵌套结构。输入统一为 `["原文",...]` 纯数组，译文按数组位置一一对应，不再使用跨批次易混淆的数字编号 key
 6. **Token 估算**：术语表合并后系统提示词变长，`ConversationHistory.UpdateSystemPrompt()` 重置基线 token
 
 ### 错误处理

@@ -262,5 +262,20 @@ internal static class SimpleJson
         }
     }
 
+    /// <summary>Parse a JSON string into a List. Top-level value must be a JSON array.</summary>
+    public static List<object> ParseJsonArray(string? json)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(json)) return new List<object>();
+            int pos = SkipWhitespace(json!, 0);
+            return ParseArray(json!, ref pos);
+        }
+        catch
+        {
+            return new List<object>();
+        }
+    }
+
     #endregion
 }
