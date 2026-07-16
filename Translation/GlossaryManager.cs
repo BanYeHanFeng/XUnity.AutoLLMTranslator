@@ -29,7 +29,7 @@ internal class GlossaryManager
 
     /// <summary>
     /// 渲染术语表为提示词文本（供系统提示词 {{GLOSSARY}} 占位符替换）。
-    /// 格式：每行 "原文 => 译文"，无术语时返回 "（无）"。
+    /// 格式：单行，条目间以逗号分隔，每条 "原文:译文"，无术语时返回 "（无）"。
     /// </summary>
     public string RenderForPrompt()
     {
@@ -37,13 +37,13 @@ internal class GlossaryManager
         {
             if (_glossary.Count == 0) return "（无）";
             var sb = new StringBuilder();
+            bool first = true;
             foreach (var kvp in _glossary)
             {
-                sb.Append(kvp.Key).Append(" => ").Append(kvp.Value).Append('\n');
+                if (!first) sb.Append(',');
+                sb.Append(kvp.Key).Append(':').Append(kvp.Value);
+                first = false;
             }
-            // 去掉末尾换行
-            if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-                sb.Length--;
             return sb.ToString();
         }
     }
