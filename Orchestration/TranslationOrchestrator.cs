@@ -452,8 +452,8 @@ internal class TranslationOrchestrator
     /// </summary>
     private static string Flatten(string? text)
     {
-        if (string.IsNullOrEmpty(text)) return text ?? "";
-        return text.Replace("\r\n", "\\n").Replace("\r", "\\n").Replace("\n", "\\n");
+        if (string.IsNullOrEmpty(text)) return "";
+        return text!.Replace("\r\n", "\\n").Replace("\r", "\\n").Replace("\n", "\\n");
     }
 
     private static string Truncate(string text, int maxLen)

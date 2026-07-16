@@ -54,7 +54,7 @@ internal static class BatchResponseParser
             if (!resultObj.TryGetValue(key, out object? vObj))
                 continue;
 
-            string translated = vObj as string;
+            string? translated = vObj as string;
             if (translated == null)
             {
                 // 非字符串值兜底为字符串表示，再交由 HalfWidth/空判处理
