@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 
 internal class ConversationHistory
@@ -11,6 +12,12 @@ internal class ConversationHistory
     private bool _apiReturnsTokens = false;
     private int _discardCount = 0;
     private int _clearCount = 0;
+
+    // 输入/输出 JSON 的编号键："1"/"2"/... 从 1 开始单调递增；同一对话历史窗口内每个
+    // 编号唯一，杜绝旧实现跨批次重号（模型把不同批次同号条目拼成同一对象）的混淆。
+    // 历史清空时（CheckAndClearIfOverLimit / ClearHistory / UpdateSystemPrompt 三处入口）
+    // 一并重置回 1 —— 此时历史已无旧批条目，模型不会再见到这些编号，故从 1 重新递增安全。
+    private int _nextKey = 1;
 
     public bool Enabled { get; set; }
     public int MaxContext { get; set; }
@@ -55,6 +62,28 @@ internal class ConversationHistory
     }
 
     /// <summary>
+    /// 为批内任务分配本批 JSON 输入/输出键 "1"/"2"/...（_nextKey 当前值即起始键）。
+    /// ParallelCount 已废弃固定为 1，无并发批次，键的递增在锁内一次完成即可。
+    /// 每个 task.UserKey 写入其对应的编号字符串；Advance() 仅发生在分配处。
+    /// 调用方负责在 RecordExchange（成功）后才把对应轮次记录入库——键的递增与历史
+    /// 记录是两个独立维度：键递增不可回退（避免与历史旧轮重号），即便批次最终失败
+    /// 重试也只是排到下一批再分配新一组键（与首次键不同，但不重号）。
+    /// </summary>
+    public void AllocKeys(List<TranslationTask> batch)
+    {
+        lock (_lock)
+        {
+            int k = _nextKey;
+            for (int i = 0; i < batch.Count; i++)
+            {
+                batch[i].UserKey = k.ToString(CultureInfo.InvariantCulture);
+                k++;
+            }
+            _nextKey = k;
+        }
+    }
+
+    /// <summary>
     /// 更新系统提示词及其 token 估算（术语表合并后系统提示词变长时调用）。
     /// 会重置历史并基于新系统提示词重新计算基线 token。
     /// </summary>
@@ -65,6 +94,7 @@ internal class ConversationHistory
             _systemPromptTokens = prompt.Length * 3 / 4;
             _history.Clear();
             _totalContextTokens = _systemPromptTokens;
+            _nextKey = 1;   // 历史清空 → 编号键重置回 1
         }
     }
 
@@ -86,6 +116,7 @@ internal class ConversationHistory
                 _history.Clear();
                 _totalContextTokens = _systemPromptTokens;
                 _clearCount++;
+                _nextKey = 1;   // 历史清空 → 编号键重置回 1
                 LogHistoryCleared(oldTokens, "超过最大上下文");
                 return true;
             }
@@ -143,6 +174,7 @@ internal class ConversationHistory
             _history.Clear();
             _totalContextTokens = _systemPromptTokens;
             _clearCount++;
+            _nextKey = 1;   // 历史清空 → 编号键重置回 1
             LogHistoryCleared(oldTokens, "已接近上限");
         }
         return true;

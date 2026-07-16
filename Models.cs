@@ -52,6 +52,12 @@ internal class TranslationTask
     // 协程等待（endpoint 用此字段轮询完成状态）
     public volatile bool IsCompleted;
 
+    // 本批 JSON 输入/输出键。输入/输出均采用同一编号（"1"/"2"/...）：每个条目在
+    // ConversationHistory 中按全局单调递增分配，使跨批次历史译文与当前输入中重号
+    // 条目不被模型误并；历史清空后重置回 1。负责任务对象的复用：失败/限速重试
+    // 时沿用原键（ResetForRetry 不清除此字段），故重试批次的输入键与首次一致。
+    public string UserKey { get; set; } = "";
+
     // 便利方法
     public void MarkCompleted(string translated)
     {

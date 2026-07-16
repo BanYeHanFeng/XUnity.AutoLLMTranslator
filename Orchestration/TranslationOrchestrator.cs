@@ -214,8 +214,11 @@ internal class TranslationOrchestrator
             foreach (var task in batch)
                 texts.Add(task.UntranslatedText);
 
-            // 构建用户输入 JSON
-            string inputJson = BuildInputJson(texts);
+            // 分配本批 JSON 编号键（"1"/"2"/...，单调递增；历史清空时已重置回 1）
+            _history.AllocKeys(batch);
+
+            // 构建用户输入 JSON（键取自各 task.UserKey）
+            string inputJson = BuildInputJson(batch);
 
             // 构建消息：术语表模式使用含术语表的系统提示词，否则用默认
             string systemPrompt = _config.AutoGlossary && _glossary != null
@@ -461,21 +464,25 @@ internal class TranslationOrchestrator
     }
 
     /// <summary>
-    /// 构建 {"texts":["原文1","原文2",...]} 格式的用户输入 JSON。
-    /// 输入与输出均用同一 "texts" 键（键值对应）：跨批次用相同 "1"/"2" 编号容易让模型
-    /// 把不同批次的同号条目拼成同一对象，进而把历史译文误并入当前输出；改为数组按位置
-    /// 对应、并以外层固定键 "texts" 包裹，既无编号混淆又有明确结构锚点。
+    /// 构建用户输入 JSON。
+    /// 键取自各 task.UserKey（由 ConversationHistory.AllocKeys 分配的 "1"/"2"/...，
+    /// 同一对话历史窗口内全局单调递增、绝不重号），值为该任务原文：
+    ///   {"1":"原文1","2":"原文2",...}
+    /// 输出端 BatchResponseParser 用同样的键读取译文，键值对应、与历史中旧批重号条目
+    /// 不再混淆。未完成系统提示词自定义工作，此处不内置示例/规则文本。
     /// </summary>
-    private static string BuildInputJson(List<string> texts)
+    private static string BuildInputJson(List<TranslationTask> batch)
     {
         var sb = new StringBuilder();
-        sb.Append("{\"texts\":[");
-        for (int i = 0; i < texts.Count; i++)
+        sb.Append('{');
+        for (int i = 0; i < batch.Count; i++)
         {
             if (i > 0) sb.Append(',');
-            sb.Append(SimpleJson.Serialize(texts[i]));
+            sb.Append(SimpleJson.Serialize(batch[i].UserKey))
+              .Append(':')
+              .Append(SimpleJson.Serialize(batch[i].UntranslatedText));
         }
-        sb.Append("]}");
+        sb.Append('}');
         return sb.ToString();
     }
 }

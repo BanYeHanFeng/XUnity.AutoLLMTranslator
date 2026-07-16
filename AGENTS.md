@@ -67,10 +67,11 @@ WorkerLoop (后台线程, IsBackground=true)
   │  DispatchBatches() → DequeueAll() → Token 感知选择
   ▼
 ProcessBatch() (ThreadPool 线程)
-  │  构建 ["原文1","原文2"] JSON（纯数组按位置对应，不用数字编号）
+  │  ConversationHistory.AllocKeys() → 为批内各任务分配 "1"/"2"/... 编号（单调递增，历史清空时重置回 1）
+  │  构建 {"1":"原文1","2":"原文2"} JSON（键值对应，编号跨批次唯一避免与历史重号）
   │  ConversationHistory.BuildMessages() → [system, history, user]
   │  LlmClient.Translate() → SSE 流式请求 LLM API
-  │  BatchResponseParser.ParseAndDispatch() → 解析 JSON + 全角半角 + 分发译文到各 TranslationTask
+  │  BatchResponseParser.ParseAndDispatch() → 按 UserKey 取回译文 + 全角半角 + 分发译文到各 TranslationTask
   │  成功 → ConversationHistory.RecordApiUsage() + RecordExchange()
   │  失败(429) → RateLimitGuard 指数退避，ReEnqueue（不耗重试次数）
   │  失败(其他) → RetryHandler 判断是否重试
@@ -143,7 +144,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `DispatchBatches()` | 循环取批直到并发满或队列空，标记 Processing，提交 ThreadPool；历史清空时触发 `OnHistoryCleared` |
 | `ProcessBatch()` | 批次翻译核心流程（见下）；响应解析/分发/全角半角交由 `BatchResponseParser` |
 | `SelectBatch()` | Token 感知选批：超限走「下一句截断」/「单条丢弃」/「清空历史后纳入」三条分支 |
-| `BuildInputJson()` | 构建 `["原文1","原文2"]` 格式 JSON（纯数组按位置对应，不用数字编号，避免跨批次同号混淆） |
+| `BuildInputJson()` | 构建 `{"1":"原文1","2":"原文2"}` 格式 JSON（编号键由 `ConversationHistory.AllocKeys` 单调递增分配，跨批次唯一避免与历史重号；历史清空时重置回 1） |
 | `OnHistoryCleared()` | 历史清空后将暂存术语注入 `_glossary`（`MergePending`，仅内存合并）+ 更新系统提示词 token 估算（仅 AutoGlossary） |
 | Token 统计 | `_totalInputTokens`, `_totalOutputTokens`, `_totalCacheHitTokens`, `_totalCacheMissTokens`（`Interlocked.Add` 累加） |
 
@@ -323,7 +324,7 @@ LlmResult Translate(string url, string apiKey, string model,
 2. **术语表位置**：作为系统提示词的一部分（拼接到 `{{GLOSSARY}}` 占位符后），不作为独立 system 消息——保持缓存前缀稳定
 3. **更新时机**：每批有新术语即落盘（`AddPendingTerms`，防止游戏意外停止丢失）；但仅对话历史清空时（`CheckAndClearIfOverLimit` 或 `ClearHistory`）才由 `MergePending` 注入 `_glossary`，保证一轮对话上下文内系统提示词稳定
 4. **新术语缓冲**：`BatchResponseParser.ParseAndDispatch` 解析响应 glossary 字段并通过 `out` 返回，由 Orchestrator 调 `AddPendingTerms` 存入内存 `_pendingNew` 并即时全量落盘（`_glossary + _pendingNew` 合并视图），新术语暂不进 `_glossary`，故暂不进系统提示词
-5. **向后兼容**：`AutoGlossary=false` 时模型输出 `["译文"]` 顶层数组；`AutoGlossary=true` 时输出 `{"translations":["译文"],"glossary":{...}}` 嵌套结构。输入统一为 `["原文",...]` 纯数组，译文按数组位置一一对应，不再使用跨批次易混淆的数字编号 key
+5. **输入/输出键值对应**：输入为 `{"1":"原文1","2":"原文2",...}`，输出为 `{"1":"译文1","2":"译文2",...}`（普通模式）；`AutoGlossary=true` 时再加 `"glossary":{...}`。编号由 `ConversationHistory.AllocKeys` 在同一对话窗口内单调递增、跨批次唯一避免与历史同号条目混淆；历史清空时（`CheckAndClearIfOverLimit` / `ClearHistory` / `UpdateSystemPrompt`）一并重置回 1
 6. **Token 估算**：术语表合并后系统提示词变长，`ConversationHistory.UpdateSystemPrompt()` 重置基线 token
 
 ### 错误处理

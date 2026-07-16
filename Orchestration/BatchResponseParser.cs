@@ -18,11 +18,13 @@ internal static class BatchResponseParser
 
     /// <summary>
     /// 解析 LLM 响应、按需半角化译文、为批内任务标记完成。
-    /// 输入/输出均用同一 "texts" 键包载数组（按位置对应），不再使用跨批次易混淆的数字编号 key。
-    /// 输出结构：普通模式 {"texts":["译文1","译文2"]}；术语表模式 {"texts":["译文1","译文2"],"glossary":{...}}。
+    /// 输入/输出键值对应：输入 JSON 为 {"1":"原文1","2":"原文2",...}，输出为
+    /// {"1":"译文1","2":"译文2",...}（普通模式）；术语表模式再追加 "glossary":{...}。
+    /// 各编号由 ConversationHistory.AllocKeys 全局单调分配，同一历史窗口内绝不重号，
+    /// 故模型不会把当前输入与历史译文按相同编号合并。
     /// </summary>
     /// <param name="result">LLM 调用结果（FullResponse 为完整 JSON）</param>
-    /// <param name="batch">本轮任务（顺序对应 texts 数组中的元素）</param>
+    /// <param name="batch">本轮任务（UserKey 已由 AllocKeys 设置）</param>
     /// <param name="config">配置（用于 AutoGlossary 模式判定与 HalfWidth）</param>
     /// <param name="glossaryObj">术语表模式下，返回本轮新术语映射；否则为 null</param>
     /// <returns>成功标记完成的任务数；抛异常表示解析失败或结果为空</returns>
@@ -41,21 +43,23 @@ internal static class BatchResponseParser
         if (resultObj == null || resultObj.Count == 0)
             throw new Exception("JSON结果解析失败: " + result.FullResponse);
 
-        // 译文列表：两种模式下均从 "texts" 键读取数组（输入/输出键值对应）
-        if (!resultObj.TryGetValue("texts", out object? tObj) || !(tObj is List<object> translationsList))
-            throw new Exception("结果缺少 texts 数组: " + result.FullResponse);
-
-        // 术语表模式：额外提取 glossary 新术语
-        if (config.AutoGlossary
-            && resultObj.TryGetValue("glossary", out object? gObj)
-            && gObj is Dictionary<string, object> gDict)
-            glossaryObj = gDict;
-
-        // 数组按位置与 batch 一一对应（无编号，杜绝跨批次同号混淆）
+        // 译文：按各任务的 UserKey 从结果对象中查找对应译文（输入/输出键值对应）。
+        // 允许 LLM 漏答个别键（视为本条未完成）或乱序输出，键值匹配不依赖数组下标。
         int completed = 0;
-        for (int i = 0; i < translationsList.Count && i < batch.Count; i++)
+        foreach (var task in batch)
         {
-            string translated = (translationsList[i] as string) ?? "";
+            string key = task.UserKey;
+            if (string.IsNullOrEmpty(key))
+                continue;
+            if (!resultObj.TryGetValue(key, out object? vObj))
+                continue;
+
+            string translated = vObj as string;
+            if (translated == null)
+            {
+                // 非字符串值兜底为字符串表示，再交由 HalfWidth/空判处理
+                translated = vObj != null ? vObj.ToString() : "";
+            }
             if (string.IsNullOrEmpty(translated)) continue;
 
             // 全角转半角
@@ -63,9 +67,15 @@ internal static class BatchResponseParser
                 translated = HalfWidthRegex.Replace(translated,
                     m => ((char)(m.Value[0] - 0xFEE0)).ToString());
 
-            batch[i].MarkCompleted(translated);
+            task.MarkCompleted(translated);
             completed++;
         }
+
+        // 术语表模式：额外提取 glossary 新术语（与译文键不冲突，单独的 "glossary" 对象）
+        if (config.AutoGlossary
+            && resultObj.TryGetValue("glossary", out object? gObj)
+            && gObj is Dictionary<string, object> gDict)
+            glossaryObj = gDict;
 
         return completed;
     }
