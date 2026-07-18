@@ -168,7 +168,7 @@ internal class GlossaryWorker
         messages.Add(new LlmMessage { Role = "system", Content = systemPrompt });
         messages.Add(new LlmMessage { Role = "user", Content = recentText });
 
-        long started = Environment.TickCount;
+        int started = Environment.TickCount;
 
         LlmResult result;
         try
@@ -281,7 +281,8 @@ internal class GlossaryWorker
             lines.InsertRange(0, prefix);
         }
 
-        return string.Join("\n", lines);
+        // net35 无 string.Join(string, IEnumerable<string>) 重载，先转 string[]
+        return string.Join("\n", lines.ToArray());
     }
 
     /// <summary>处理 LLM 调用失败：限速则共享退避并把本轮 sources 退回队首；其余错误丢弃（尽力而为）。</summary>
