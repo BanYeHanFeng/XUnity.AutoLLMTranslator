@@ -164,7 +164,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | 要点 | 说明 |
 |---|---|
 | `HalfWidthRegex` | 静态编译正则，全角符号 `[！-～]` 转半角（偏移 `0xFEE0`）；从 Orchestrator 迁入 |
-| `ParseAndDispatch(result, batch, config, out glossaryObj)` | 校验非空 → 术语表模式 `ParseJsonObject` 取 `translations`(数组)/`glossary` 嵌套、否则 `ParseJsonArray` 取顶层译文数组 → 按位置与 batch 一一对应 → 按需全角转半角 → `MarkCompleted` 分发；返回完成数，`out` 暴露本轮新术语 |
+| `ParseAndDispatch(result, batch, config, out glossaryObj)` | 校验非空 → `ParseJsonObject` 解析顶层对象 → 按各任务 `UserKey` 直接从对象中取译文（普通模式/术语表模式同为平铺结构 `{"1":"译文1","2":"译文2"[,"glossary":{...}]}`） → 术语表模式额外取顶层 `glossary` 对象 → 按需全角转半角 → `MarkCompleted` 分发；返回完成数，`out` 暴露本轮新术语 |
 | 文本超限/单条丢弃 | 仍由 Orchestrator 的 `SelectBatch` 负责，本类只处理已成功返回的响应 |
 
 ### 7. `Orchestration/TaskQueue.cs`（119 行）
