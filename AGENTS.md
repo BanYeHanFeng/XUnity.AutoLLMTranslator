@@ -2,6 +2,15 @@
 
 本文档为 OpenCode 与此仓库协作时提供完整上下文。
 
+> ## 架构变更说明（双线程 + 关历史，最新为准）
+> 本仓库已从"单线程翻译 + 借对话历史清空驱动术语合并"改为**双线程架构**：
+> - **翻译线程**（`TranslationOrchestrator.WorkerLoop`）：系统提示词内嵌当前术语表，只产出译文 `{"1":"译文"}`，不再产出 glossary。**对话历史已禁用**（`ConversationHistory.Enabled=false`），`RecordExchange`/`RecordApiUsage`/`CheckAndClearIfOverLimit`/`OnHistoryCleared` 全部停用/移除；`_history` 仅保留系统提示词基线与 `AllocKeys`/`EstimateTokens`。
+> - **术语抽取线程**（新增 `Translation/GlossaryWorker.cs`）：翻译线程每批派发后通过 `EnqueueSources` 投递本批原文；独立调用 LLM 抽取 `{"glossary":{...}}`，附带**本地最近原文环形缓冲**（非 LLM 历史）供跨句判断；`AddPendingTerms` 即时落盘 + 按 `GlossaryMergeThreshold` 阈值 `MergePending` 注入 `_glossary`（单点驱动，不再借历史清空事件）。合并后下一批翻译线程从 `_glossary` 重建系统提示词即时生效。
+> - **`RateLimitGuard`** 已加锁，两个线程共享同一退避状态（任一撞 429 双方共同退避）。
+> - **PromptManager** 占位符统一中文：`{{源语言}}` `{{目标语言}}` `{{术语表}}` `{{最近原文}}`；提示词模板拆为 `TranslationWithGlossary`（翻译）与 `GlossaryExtractionOnly`（术语抽取），`BuildGlossaryPrompt` 拆为 `BuildTranslationPrompt` 与 `BuildGlossaryExtractionPrompt`；自定义提示词文件改为三节 `[普通模式提示词]`/`[翻译模式提示词]`/`[术语抽取模式提示词]`；现存无分节标题的单文件（整文件即普通提示词）首次加载自动重写为三节 INI 格式；旧英文占位符加载时自动迁移为中文。
+> - 配置新增：`GlossaryMergeThreshold`(3) / `GlossaryContextLines`(50) / `GlossaryBatchMerge`(true)，`CachedGlossaryPrompt` → `CachedTranslationPrompt` + `CachedExtractionPrompt`。
+> - 下方历史章节（尤其第二章流程图、第六章 `ProcessBatch` 步骤、第十一/十二章 GlossaryManager/ConversationHistory 行为）仅作背景参考，以本说明为准。
+
 ---
 
 ## 一、项目概述
@@ -117,7 +126,7 @@ Endpoint 协程轮询 task.IsCompleted → context.Complete(translated)
 | `Build(config)` | 根据 `CustomPrompt` 决定使用内建默认还是从单一文件 `AutoLLM_CustomPrompt.txt` 读取【普通模式分节】 |
 | `BuildGlossaryPrompt(config)` | 构建术语表模式提示词，从同一文件读取【术语表模式分节】，设置 `config.GlossaryPath`，保留 `{{GLOSSARY}}` 占位符 |
 | 自定义文件路径 | `{BepInExRoot}/config/AutoLLM_CustomPrompt.txt`（单一文件，用 INI 风格分节标题分两节） |
-| 文件分节标题 | 常量 `PromptManager.DefaultSectionHeader`（`[普通模式提示词]`）与 `PromptManager.GlossarySectionHeader`（`[自动术语表模式提示词]`）：标题行之下到下一个标题之前为对应分节 |
+| 文件分节标题 | 常量 `PromptManager.DefaultSectionHeader`（`[普通模式提示词]`）、`TranslationSectionHeader`（`[翻译模式提示词]`）、`ExtractionSectionHeader`（`[术语抽取模式提示词]`）：标题行之下到下一个标题之前为对应分节（参见顶部"架构变更说明"） |
 | 占位符替换 | `{{SOURCE_LAN}}` → 源语言，`{{TARGET_LAN}}` → 目标语言；`{{GLOSSARY}}` 由 GlossaryManager 运行时填充 |
 | 首次开启 | 自动创建含两套内建默认提示词（用 `DefaultSectionHeader` / `GlossarySectionHeader` 分节）的模板文件，方便用户修改 |
 | `LoadPromptSection()` | 通用加载逻辑：customPrompt=false 用默认，true 时按 `wantGlossary` 选取对应分节（按 INI 风格分节标题切分；检测到无分节标题的最旧版单节文件会自动重写为新版 INI 分节格式） |

@@ -15,10 +15,12 @@ internal class TranslationOrchestrator
     private readonly ConversationHistory _history;
     private readonly ILlmClient _llmClient;
     private readonly GlossaryManager? _glossary;
+    private readonly GlossaryWorker? _glossaryWorker;   // 术语抽取线程（双线程架构，仅 AutoGlossary=true）
 
     private volatile bool _shutdownRequested;
     private volatile int _processingCount;
     private int _batchSeq;
+    private int _traceTurnCount;   // 对话历史已禁用，用本地计数替代 _history.TurnCount 用于调用轨迹首轮判定
     private Thread? _workerThread;
     private long _totalInputTokens, _totalOutputTokens;
     private long _totalCacheHitTokens, _totalCacheMissTokens;
@@ -34,7 +36,10 @@ internal class TranslationOrchestrator
         _rateLimitGuard = new RateLimitGuard();
         _history = new ConversationHistory
         {
-            Enabled = true,   // ParallelCount 已废弃固定为 1，对话历史始终启用
+            // 双线程架构（翻译 + 术语抽取）下关闭对话历史：两线程各自对 LLM 调用彼此无状态依赖，
+            // 消除共享历史带来的同步问题，并使前缀缓存命中随轮数不再衰减。
+            // _history 现仅保留系统提示词基线与 AllocKeys/EstimateTokens 供 SelectBatch 使用。
+            Enabled = false,
             MaxContext = config.MaxContext
         };
 
@@ -42,9 +47,13 @@ internal class TranslationOrchestrator
         if (config.AutoGlossary)
         {
             _glossary = new GlossaryManager(config.GlossaryPath);
-            // 术语表模式使用合并术语表后的系统提示词作为缓存基线
-            var fullPrompt = _glossary.BuildSystemPrompt(config.CachedGlossaryPrompt);
+            // 翻译线程系统提示词基线（含初始术语表）。术语表后续增长由术语抽取线程按阈值合并，
+            // 不再借对话历史清空事件驱动；翻译线程每批派发时从 _glossary 重建提示词即时生效。
+            var fullPrompt = _glossary.BuildSystemPrompt(config.CachedTranslationPrompt);
             _history.InitSystemPrompt(fullPrompt);
+
+            // 启动独立的术语抽取线程，与翻译线程共享同一 RateLimitGuard（共享退避）
+            _glossaryWorker = new GlossaryWorker(config, _llmClient, _glossary, _rateLimitGuard);
         }
         else
         {
@@ -54,17 +63,19 @@ internal class TranslationOrchestrator
 
     // ---- 公开方法 ----
 
-    /// <summary>启动后台工作线程。</summary>
+    /// <summary>启动后台工作线程（翻译线程；AutoGlossary 时一并启动术语抽取线程）。</summary>
     public void Start()
     {
         _workerThread = new Thread(WorkerLoop) { IsBackground = true };
         _workerThread.Start();
+        _glossaryWorker?.Start();
     }
 
     /// <summary>请求关闭。</summary>
     public void Shutdown()
     {
         _shutdownRequested = true;
+        try { _glossaryWorker?.Shutdown(); } catch { }
         try { _taskQueue.Signal.Set(); } catch { }
     }
 
@@ -114,14 +125,10 @@ internal class TranslationOrchestrator
             if (pending.Count == 0)
                 break;
 
-            // 2. 历史超限检查（token 精准判断）
-            if (_history.CheckAndClearIfOverLimit())
-            {
-                // 历史清空 → 合并本轮新术语到文件并更新系统提示词
-                OnHistoryCleared();
-            }
+            // 对话历史已禁用：不再做 CheckAndClearIfOverLimit 触发的合并。
+            // 术语表合并改由术语抽取线程按 GlossaryMergeThreshold 阈值驱动。
 
-            // 3. Token 感知任务选择（复杂超限处理封装在 SelectBatch 内）
+            // 2. Token 感知任务选择（复杂超限处理封装在 SelectBatch 内）
             List<TranslationTask> batch, overflow;
             int estimatedTotal;
             if (!SelectBatch(pending, out batch, out overflow, out estimatedTotal))
@@ -148,10 +155,10 @@ internal class TranslationOrchestrator
 
     /// <summary>
     /// 从 pending 列表中按 MaxContext 上限选取一批任务。
+    /// 对话历史已禁用：容量基线为系统提示词（含当前术语表）常量，无"历史太满清空"分支。
     /// 超限任务的处理策略：
     ///   - batch 非空时超限 → 本条及后续全归 overflow（"下一句"截断逻辑）
-    ///   - batch 为空时单条自身超限 → MarkFailed 丢弃
-    ///   - batch 为空时历史太满 → ClearHistory 后纳入本条
+    ///   - batch 为空时单条超 MaxContext → MarkFailed 丢弃
     /// </summary>
     /// <returns>true 表示 batch 非空（可提交）；false 表示全部被丢弃，应继续下一轮。</returns>
     private bool SelectBatch(List<TranslationTask> pending,
@@ -188,6 +195,7 @@ internal class TranslationOrchestrator
             if (taskEstimate > _config.MaxContext)
             {
                 // 文本自身确实超限 → 丢弃
+                // 对话历史已禁用：TotalContextTokens 即系统提示词基线，单条超 MaxContext 即自身超限
                 task.MarkFailed("单条文本超出 MaxContext(" + _config.MaxContext + ")");
                 _taskQueue.MarkCompleted();
                 _history.IncrementDiscardCount();
@@ -198,13 +206,15 @@ internal class TranslationOrchestrator
                 continue;
             }
 
-            // 历史太满导致装不下 → 清空历史后纳入本条
-            // 清空动作的 Info 由 ConversationHistory.ClearHistory 统一记录
-            _history.ClearHistory();
-            OnHistoryCleared();
+            // 对话历史已禁用：不存在"历史太满"分支。newTotal 超限且 batch 为空且 taskEstimate
+            // 未超 MaxContext 的情形在 Enabled=false 下不可达（baseline 为常量），故此处不再处理。
+            // 兜底防死循环：将该条标记为超限丢弃并继续
+            task.MarkFailed("无法纳入批次（超出 MaxContext 余量）: 估算" + newTotal + " > " + _config.MaxContext);
+            _taskQueue.MarkCompleted();
+            _history.IncrementDiscardCount();
+            Logger.Warn("任务无法纳入批次（超出 MaxContext 余量）, 丢弃 | 估算" + newTotal +
+                " tokens > " + _config.MaxContext + " | 文本: " + Truncate(task.UntranslatedText, 80));
             estimatedTotal = _history.TotalContextTokens;
-            batch.Add(task);
-            estimatedTotal += taskEstimate;
         }
 
         return batch.Count > 0;
@@ -224,15 +234,17 @@ internal class TranslationOrchestrator
             foreach (var task in batch)
                 texts.Add(task.UntranslatedText);
 
-            // 分配本批 JSON 编号键（"1"/"2"/...，单调递增；历史清空时已重置回 1）
+            // 分配本批 JSON 编号键（"1"/"2"/...，全局单调递增；对话历史已禁用但 _nextKey
+            // 仍单调递增，避免与术语线程/历史无关的跨批重号）
             _history.AllocKeys(batch);
 
             // 构建用户输入 JSON（键取自各 task.UserKey）
             string inputJson = BuildInputJson(batch);
 
-            // 构建消息：术语表模式使用含术语表的系统提示词，否则用默认
+            // 构建消息：术语表模式使用含术语表的翻译模式提示词（仅应用术语、不产出新术语）；
+            // 对话历史已禁用 → BuildMessages 内仅返回 [system, user]，无历史条目。
             string systemPrompt = _config.AutoGlossary && _glossary != null
-                ? _glossary.BuildSystemPrompt(_config.CachedGlossaryPrompt)
+                ? _glossary.BuildSystemPrompt(_config.CachedTranslationPrompt)
                 : _config.CachedSystemPrompt;
             var messages = _history.BuildMessages(systemPrompt, inputJson);
 
@@ -241,7 +253,7 @@ internal class TranslationOrchestrator
             foreach (var t in texts) totalChars += t.Length;
             long waitMs = Environment.TickCount - batch[0].CreatedTick;
             int ctxTokens = _history.TotalContextTokens;
-            int turnCount = _history.TurnCount;
+            int turnCount = _traceTurnCount;
             bool firstTurn = (turnCount == 0);
 
             // 同步调用 LLM（阻塞 ThreadPool 线程，net35 下无可避免）
@@ -263,9 +275,9 @@ internal class TranslationOrchestrator
             // ---- LLM 调用轨迹（Debug）----
             // 过滤交由 BepInEx 的 listener 按 BepInEx.cfg 的 LogLevels 处理；
 // 此处无条件构造并发出，避免本插件与框架重复维护一份日志级别开关。
-            // 只记录本轮新输入：首轮含系统提示词(系统:...) + 用户(inputJson)；
-            // 后续轮系统提示词已属历史，仅记录用户新输入。思考(reasoning_content)置于
-            // 输入与输出之间，输出为完整 JSON，均不截断。
+            // 只记录本轮新输入：首轮(_traceTurnCount==0)展开系统提示词(系统:...) + 用户(inputJson)；
+            // 后续轮系统提示词与首轮一致（术语表若合并增长才变化），仅记录用户新输入。
+            // 思考(reasoning_content)置于输入与输出之间，输出为完整 JSON，均不截断。
             // 尾行整合耗时/token/缓存/累计；接口未返回 token 时回退字符估算(0.75)。
             {
                 long inTok = result.Usage?.PromptTokens ?? 0;
@@ -281,7 +293,7 @@ internal class TranslationOrchestrator
                 trace.Append("[LLM调用] 批次").Append(batchId)
                      .Append(" 选取").Append(batch.Count).Append("条(").Append(totalChars)
                      .Append("字符) 上下文").Append(ctxTokens).Append("/").Append(_config.MaxContext)
-                     .Append(" 排队").Append(waitMs).Append("ms 历史").Append(turnCount).Append("轮")
+                     .Append(" 排队").Append(waitMs).Append("ms 第").Append(turnCount + 1).Append("次(无历史)")
                      .Append("\n  实际输入: ");
                 if (firstTurn)
                     trace.Append("系统:").Append(Flatten(systemPrompt))
@@ -320,24 +332,21 @@ internal class TranslationOrchestrator
                 throw new Exception("翻译结果为空");
 
             // 解析响应并分发译文到批内任务（半角化封装在内部）
+            // 双线程架构下翻译输出不再带 glossary；解析器仍兼容旧式输出，此处忽略其 glossary 出参
             Dictionary<string, object>? glossaryObj;
             int completed = BatchResponseParser.ParseAndDispatch(result, batch, _config, out glossaryObj);
 
-            // 术语表模式：收集本轮新术语（每批有新术语即落盘，防止游戏意外停止丢失；
-            // 暂存内存 _pendingNew，仅历史对话清空后才注入 _glossary 进系统提示词）
-            if (_config.AutoGlossary && _glossary != null && glossaryObj != null)
+            // 术语抽取改由独立的术语抽取线程负责：翻译线程只把本批原文投递给它
+            if (_config.AutoGlossary && _glossaryWorker != null)
             {
-                _glossary.AddPendingTerms(glossaryObj);
+                _glossaryWorker.EnqueueSources(texts);
             }
 
             if (completed == batch.Count)
             {
-                // 1. 先记录 API 精确 token（如果可用）
-                _history.RecordApiUsage(
-                    result.Usage?.PromptTokens ?? 0,
-                    result.Usage?.CompletionTokens ?? 0);
-                // 2. 再记录对话交换（精确模式下只追加消息，回退模式下累加估算）
-                _history.RecordExchange(inputJson, result.FullResponse);
+                // 对话历史已禁用：不再记录 API token 与对话交换。
+                // 仅维护本地调用计数，用于调用轨迹区分"首轮/后续"（系统提示词是否值得展开记录）。
+                _traceTurnCount++;
             }
             else if (completed < batch.Count)
             {
@@ -437,23 +446,10 @@ internal class TranslationOrchestrator
 
     // ---- 辅助 ----
 
-    /// <summary>
-    /// 历史清空后的术语表维护：
-    /// 1. 将本轮收集的暂存术语注入 _glossary（文件已由每批即时落盘，此处仅做内存合并）
-    /// 2. 用合并后的术语表重建系统提示词并更新 token 估算基线
-    /// ParallelCount 已废弃固定为 1，对话历史始终启用。
-    /// </summary>
-    private void OnHistoryCleared()
-    {
-        if (!_config.AutoGlossary || _glossary == null) return;
-        int added = _glossary.MergePending();
-        if (added > 0)
-        {
-            // 术语表变化 → 系统提示词变长 → 更新基线 token 估算
-            var fullPrompt = _glossary.BuildSystemPrompt(_config.CachedGlossaryPrompt);
-            _history.UpdateSystemPrompt(fullPrompt);
-        }
-    }
+    // 历史清空驱动的术语表维护（OnHistoryCleared）已移除：对话历史已禁用，不再有清空事件。
+    // 术语 _pendingNew → _glossary 的晋升改由术语抽取线程按 GlossaryMergeThreshold 阈值单点驱动，
+    // 译文系统提示词每批从 _glossary 即时重建，新术语延迟一批即生效。
+    // _history 的系统提示词 token 基线不再随术语表增长刷新（禁用后仅作保守估算，偏低无副作用）。
 
     /// <summary>截断文本用于日志输出，避免打印超长内容。</summary>
     /// <summary>

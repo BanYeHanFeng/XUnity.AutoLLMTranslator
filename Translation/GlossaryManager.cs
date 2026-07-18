@@ -28,7 +28,7 @@ internal class GlossaryManager
     }
 
     /// <summary>
-    /// 渲染术语表为提示词文本（供系统提示词 {{GLOSSARY}} 占位符替换）。
+    /// 渲染术语表为提示词文本（供系统提示词 {{术语表}} 占位符替换）。
     /// 格式：单行，条目间以逗号分隔，每条 "原文:译文"，无术语时返回 "（无）"。
     /// </summary>
     public string RenderForPrompt()
@@ -114,13 +114,14 @@ internal class GlossaryManager
     }
 
     /// <summary>
-    /// 构建完整的系统提示词：将术语表内容填入模板的 {{GLOSSARY}} 占位符。
-    /// 模板来自 config.CachedGlossaryPrompt（已替换语言占位符，仅保留 {{GLOSSARY}}）。
+    /// 构建完整的系统提示词：将术语表内容填入模板的 {{术语表}} 占位符。
+    /// 模板来自 config.CachedTranslationPrompt（翻译线程）或 config.CachedExtractionPrompt（术语抽取线程），
+/// 已替换语言占位符，仅保留 {{术语表}} 由本方法在运行时填充。
     /// </summary>
     public string BuildSystemPrompt(string glossaryPromptTemplate)
     {
         var glossaryText = RenderForPrompt();
-        return glossaryPromptTemplate.Replace("{{GLOSSARY}}", glossaryText);
+        return glossaryPromptTemplate.Replace("{{术语表}}", glossaryText);
     }
 
     // ---- 内部方法 ----
