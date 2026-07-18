@@ -25,20 +25,8 @@ internal class AutoLLMConfig
     public string? DestinationLanguage { get; set; }     // 框架提供，可能 null
     public Dictionary<string, object> ParsedModelParams { get; set; } = new Dictionary<string, object>();
     public string CachedSystemPrompt { get; set; } = null!;  // IsValid=true 时由 PromptManager.Build 设置
-    // 双线程架构下术语表模式的提示词拆为两条：
-    //   CachedTranslationPrompt —— 翻译线程使用（已替换语言占位符，保留 {{术语表}} 由 GlossaryManager 填充）
-    //   CachedExtractionPrompt  —— 术语抽取线程使用（保留 {{术语表}} 与 {{最近原文}} 由 GlossaryWorker 填充）
-    public string CachedTranslationPrompt { get; set; } = "";
-    public string CachedExtractionPrompt { get; set; } = "";
+    public string CachedGlossaryPrompt { get; set; } = "";   // AutoGlossary=true 时由 PromptManager.BuildGlossaryPrompt 设置（已替换占位符，不含术语表）
     public string? GlossaryPath { get; set; }            // 术语表文件路径，AutoGlossary=true 时由 PromptManager 设置
-
-    // ---- 术语抽取线程参数（AutoGlossary=true 时生效） ----
-    /// <summary>暂存新术语达到此阈值后注入 _glossary（并同步更新翻译线程系统提示词）。默认 3。</summary>
-    public int GlossaryMergeThreshold { get; set; } = 3;
-    /// <summary>术语抽取线程的最近原文环形缓冲行数（供跨句专名识别，非 LLM 历史）。默认 50。</summary>
-    public int GlossaryContextLines { get; set; } = 50;
-    /// <summary>术语抽取线程是否合并队列内待处理的多批原文一次性抽取（摊薄调用）。默认 true。</summary>
-    public bool GlossaryBatchMerge { get; set; } = true;
 
     /// <summary>实际发起请求的完整端点地址（含 /chat/completions 后缀，由 Url 派生）。</summary>
     public string EndpointUrl { get; private set; } = "";
@@ -63,10 +51,6 @@ internal class AutoLLMConfig
         config.AutoGlossary = context.GetOrCreateSetting("AutoLLM", "AutoGlossary", false);
         config.HalfWidth = context.GetOrCreateSetting("AutoLLM", "HalfWidth", true);
         config.DisableSpamChecks = context.GetOrCreateSetting("AutoLLM", "DisableSpamChecks", true);
-        // 术语抽取线程参数（仅 AutoGlossary=true 时实际生效，此处始终读取以便日志展示）
-        config.GlossaryMergeThreshold = context.GetOrCreateSetting("AutoLLM", "GlossaryMergeThreshold", 3);
-        config.GlossaryContextLines = context.GetOrCreateSetting("AutoLLM", "GlossaryContextLines", 50);
-        config.GlossaryBatchMerge = context.GetOrCreateSetting("AutoLLM", "GlossaryBatchMerge", true);
 
         // 2. 预解析 ModelParams
         if (!string.IsNullOrEmpty(config.ModelParams))
@@ -106,12 +90,9 @@ internal class AutoLLMConfig
         // 9. 构建并缓存系统提示词
         config.CachedSystemPrompt = PromptManager.Build(config);
 
-        // 10. 构建术语表模式提示词（双线程架构：翻译 + 术语抽取各一条；仅 AutoGlossary=true 时生效）
+        // 10. 构建术语表提示词（仅 AutoGlossary=true 时生效，否则留空）
         if (config.AutoGlossary)
-        {
-            config.CachedTranslationPrompt = PromptManager.BuildTranslationPrompt(config);
-            config.CachedExtractionPrompt = PromptManager.BuildGlossaryExtractionPrompt(config);
-        }
+            config.CachedGlossaryPrompt = PromptManager.BuildGlossaryPrompt(config);
 
         return config;
     }

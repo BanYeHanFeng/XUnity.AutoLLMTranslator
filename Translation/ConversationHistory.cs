@@ -3,17 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 
 
-/// <summary>
-/// 对话历史与系统提示词基线容器。
-///
-/// 双线程架构（翻译线程 + 术语抽取线程）下 <see cref="Enabled"/> 设为 false：
-///   - <see cref="RecordExchange"/>/RecordApiUsage/CheckAndClearIfOverLimit/ClearHistory 自动短路，
-///     两条线程的 LLM 调用彼此无共享可变历史，消除同步问题；前缀缓存命中随轮数不再衰减。
-///   - 本类现仅保留：系统提示词 token 基线（<see cref="InitSystemPrompt"/>/TotalContextTokens，
-///     供 <c>SelectBatch</c> 单批容量估算）、<see cref="AllocKeys"/>（编号键单调递增避免跨批重号）、
-///     <see cref="EstimateTokens"/>、丢弃/清空计数等只读/局部状态。
-///   - 术语表合并不再借历史清空事件驱动，改由 <c>GlossaryWorker</c> 按阈值单点触发。
-/// </summary>
 internal class ConversationHistory
 {
     private readonly List<LlmMessage> _history = new List<LlmMessage>();

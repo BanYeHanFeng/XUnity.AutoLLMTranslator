@@ -5,60 +5,45 @@ using System.Text;
 
 internal static class PromptManager
 {
-    // ---- 占位符（统一中文） ----
-    // 所有系统提示词占位符统一为中文，便于用户在自定义提示词文件中直接阅读/修改：
-    //   {{源语言}} {{目标语言}} {{术语表}} {{最近原文}}
-    // 旧英文占位符（{{SOURCE_LAN}}/{{TARGET_LAN}}/{{GLOSSARY}}/{{RECENT}}）在加载自定义
-    // 提示词文件时由 MigratePlaceholders 自动迁移为对应的中文占位符并 Warn 一次。
-
     /// <summary>
-    /// 默认【普通模式】系统提示词模板（AutoGlossary=false 时使用）。
-    /// 输出结构与翻译解析器一致：{"1":"译文1","2":"译文2"}。
+    /// 默认【普通模式】系统提示词模板。
+    /// 含 {{TARGET_LAN}} 占位符，由本类的 Build 方法替换（Build 仍会安全替换不存在的 {{SOURCE_LAN}}）。
+    /// 输出结构与解析器一致：{"1":"译文1","2":"译文2"}。
     /// </summary>
-    private const string Default = @"我是游戏文本翻译家，原文翻译为{{目标语言}}，规则:
+    private const string Default = @"我是游戏文本翻译家，原文翻译为{{TARGET_LAN}}，规则:
 如无法翻译或缩略词难以理解则输出原文
 json输出示例:
 输入: {""1"":""「お前はなぜ監視官になった？」"",""2"":""「『レクシスを守るため』だと言っていたな。」""}
 输出: {""1"":""「你为何成为了监视官？」"",""2"":""「你曾说过，是『为了保护雷克西斯』吧。」""}";
 
     /// <summary>
-    /// 默认【翻译模式】系统提示词模板（AutoGlossary=true 时由翻译线程使用）。
-    /// 内嵌当前术语表（{{术语表}}），仅要求模型按术语表统一译名、产出译文，
-    /// 不要求模型在响应中输出 glossary（术语抽取由独立的术语线程负责）。
-    /// 输出结构：{"1":"译文1","2":"译文2"}。
+    /// 默认【术语表模式】系统提示词模板。
+    /// 要求模型在翻译同时输出新术语，输出结构为 {"1":"译文","glossary":{...}}（译文平铺于顶层，
+    /// 与 BatchResponseParser 按 UserKey 直接取译文、单独取 glossary 的解析逻辑一致）。
+    /// 术语表占位符 {{GLOSSARY}} 由 GlossaryManager 在构建时替换为当前术语表内容。
     /// </summary>
-    private const string TranslationWithGlossary = @"我是游戏文本翻译家，原文翻译为{{目标语言}}，规则:
+    private const string Glossary = @"我是游戏文本翻译家，原文翻译为{{TARGET_LAN}}，规则:
 如无法翻译或缩略词难以理解则输出原文
-专有名词必须严格遵循下方术语表的既有译名，保持一致
+新术语选词类型: 角色名，地名，组织
+glossary只输出新术语，如无新术语则留空
 json输出示例:
 输入: {""1"":""「お前はなぜ監視官になった？」"",""2"":""「『レクシスを守るため』だと言っていたな。」""}
-输出: {""1"":""「你为何成为了监视官？」"",""2"":""「你曾说过，是『为了保护雷克西斯』吧。」""}
-当前术语表: {{术语表}}";
+输出: {""1"":""「你为何成为了监视官？」"",""2"":""「你曾说过，是『为了保护雷克西斯』吧。」"",""glossary"":{""監視官"":""监视官"",""レクシス"":""雷克西斯""}}
+当前术语表: {{GLOSSARY}}";
 
     /// <summary>
-    /// 默认【术语抽取模式】系统提示词模板（AutoGlossary=true 时由术语抽取线程使用）。
-    /// 只要求模型从用户消息所附最近原文中识别需要统一译法的新专名，输出 {"glossary":{"原文":"译文"}}，
-    /// 不产出译文。{{术语表}} 用于让模型跳过已有条目；最近原文由 GlossaryWorker 作为 user 消息
-    /// 附带（非 LLM 对话历史，无前缀缓存/同步耦合），系统提示词本体保持稳定以利于前缀缓存。
+    /// 自定义提示词文件中的【普通模式】分节标题（INI 风格，独占一行）。
+    /// 该标题行之下、下一个分节标题之前的内容即普通模式提示词
+    /// （AutoGlossary=false 时使用）。
     /// </summary>
-    private const string GlossaryExtractionOnly = @"你是游戏术语抽取助手。从用户消息所附最近原文中识别需要统一译法的新术语（角色名、地名、组织名等专有名词）。
-规则:
-- 仅输出本批新出现的专名，已在当前术语表中的不要重复输出
-- 无新术语时输出空对象
-- 译文使用{{目标语言}}
-当前术语表: {{术语表}}
-json输出格式: {""glossary"":{""原文"":""译文""}}";
-
-    // ---- 自定义提示词文件分节标题（INI 风格，独占一行） ----
-
-    /// <summary>【普通模式】分节标题（AutoGlossary=false 时使用）。</summary>
     public const string DefaultSectionHeader = "[普通模式提示词]";
 
-    /// <summary>【翻译模式】分节标题（AutoGlossary=true 时由翻译线程使用，应含 {{术语表}}）。</summary>
-    public const string TranslationSectionHeader = "[翻译模式提示词]";
-
-    /// <summary>【术语抽取模式】分节标题（AutoGlossary=true 时由术语线程使用，应含 {{术语表}} 与 {{最近原文}}）。</summary>
-    public const string ExtractionSectionHeader = "[术语抽取模式提示词]";
+    /// <summary>
+    /// 自定义提示词文件中的【术语表模式】分节标题（INI 风格，独占一行）。
+    /// 该标题行之下、文件结尾之前的内容即术语表模式提示词
+    /// （AutoGlossary=true 时使用，应含 {{GLOSSARY}} 占位符）。
+    /// </summary>
+    public const string GlossarySectionHeader = "[自动术语表模式提示词]";
 
     /// <summary>自定义提示词单一文件名。</summary>
     private const string CustomPromptFileName = "AutoLLM_CustomPrompt.txt";
@@ -67,93 +52,70 @@ json输出格式: {""glossary"":{""原文"":""译文""}}";
     private const string GlossaryFileName = "AutoLLM_Glossary.json";
 
     /// <summary>
-    /// 返回已替换 {{源语言}}/{{目标语言}} 的【普通模式】系统提示词（不含 {{术语表}} 占位符）。
+    /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的【普通模式】系统提示词（不含 {{GLOSSARY}} 占位符）。
     /// 行尾归一化为 LF。config.CachedSystemPrompt 应存储此返回值。
     /// CustomPrompt=false 时直接使用内建 Default。
     /// </summary>
     public static string Build(AutoLLMConfig config)
     {
-        string basePrompt = LoadPromptSection(config, PromptKind.Default, Default);
+        string basePrompt = LoadPromptSection(config, wantGlossary: false, defaultPrompt: Default);
 
         basePrompt = NormalizeLineEndings(basePrompt);
         Logger.Info("系统提示词: " + basePrompt.Length + " 字符");
 
         return basePrompt
-            .Replace("{{源语言}}", config.SourceLanguage ?? "")
-            .Replace("{{目标语言}}", config.DestinationLanguage ?? "");
+            .Replace("{{SOURCE_LAN}}", config.SourceLanguage ?? "")
+            .Replace("{{TARGET_LAN}}", config.DestinationLanguage ?? "");
     }
 
     /// <summary>
-    /// 返回已替换 {{源语言}}/{{目标语言}} 的【翻译模式】系统提示词模板。
-    /// 保留 {{术语表}} 占位符，由 GlossaryManager.BuildSystemPrompt 在运行时填充。
-    /// 仅在 AutoGlossary=true 时调用；同时设置 config.GlossaryPath。
-    /// CustomPrompt=false 时直接使用内建 TranslationWithGlossary。
+    /// 返回已替换 {{SOURCE_LAN}} 和 {{TARGET_LAN}} 的【术语表模式】系统提示词模板。
+    /// 保留 {{GLOSSARY}} 占位符，由 GlossaryManager 在运行时填充。
+    /// 仅在 config.AutoGlossary=true 时调用；同时设置 config.GlossaryPath。
+    /// CustomPrompt=false 时直接使用内建 Glossary。
     /// </summary>
-    public static string BuildTranslationPrompt(AutoLLMConfig config)
+    public static string BuildGlossaryPrompt(AutoLLMConfig config)
     {
-        EnsureGlossaryPath(config);
-
-        string basePrompt = LoadPromptSection(config, PromptKind.Translation, TranslationWithGlossary);
+        string basePrompt = LoadPromptSection(config, wantGlossary: true, defaultPrompt: Glossary);
 
         basePrompt = NormalizeLineEndings(basePrompt);
-        Logger.Info("翻译模式提示词: " + basePrompt.Length + " 字符");
+        Logger.Info("术语表提示词: " + basePrompt.Length + " 字符");
+
+        // 设置术语表文件路径（供 GlossaryManager 使用）
+        if (!string.IsNullOrEmpty(config.BepInExRoot))
+        {
+            config.GlossaryPath = Path.Combine(
+                Path.Combine(config.BepInExRoot!, "config"), GlossaryFileName);
+        }
 
         return basePrompt
-            .Replace("{{源语言}}", config.SourceLanguage ?? "")
-            .Replace("{{目标语言}}", config.DestinationLanguage ?? "");
+            .Replace("{{SOURCE_LAN}}", config.SourceLanguage ?? "")
+            .Replace("{{TARGET_LAN}}", config.DestinationLanguage ?? "");
     }
 
     /// <summary>
-    /// 返回已替换 {{目标语言}} 的【术语抽取模式】系统提示词模板。
-    /// 保留 {{术语表}} 与 {{最近原文}} 占位符，由 GlossaryWorker 在运行时填充。
-    /// CustomPrompt=false 时直接使用内建 GlossaryExtractionOnly。
-    /// </summary>
-    public static string BuildGlossaryExtractionPrompt(AutoLLMConfig config)
-    {
-        EnsureGlossaryPath(config);
-
-        string basePrompt = LoadPromptSection(config, PromptKind.Extraction, GlossaryExtractionOnly);
-
-        basePrompt = NormalizeLineEndings(basePrompt);
-        Logger.Info("术语抽取提示词: " + basePrompt.Length + " 字符");
-
-        return basePrompt
-            .Replace("{{源语言}}", config.SourceLanguage ?? "")
-            .Replace("{{目标语言}}", config.DestinationLanguage ?? "");
-    }
-
-    /// <summary>设置术语表文件路径（供 GlossaryManager 使用）。BepInExRoot 缺失则跳过。</summary>
-    private static void EnsureGlossaryPath(AutoLLMConfig config)
-    {
-        if (string.IsNullOrEmpty(config.BepInExRoot) || !string.IsNullOrEmpty(config.GlossaryPath))
-            return;
-        config.GlossaryPath = Path.Combine(
-            Path.Combine(config.BepInExRoot!, "config"), GlossaryFileName);
-    }
-
-    /// <summary>提示词种类，决定从自定义文件中加载哪个分节。</summary>
-    private enum PromptKind { Default, Translation, Extraction }
-
-    /// <summary>
-    /// 从单一自定义提示词文件加载并按 kind 选取对应分节。文件采用 INI 风格分节，标题独占一行：
-    ///   [普通模式提示词]            普通模式
-    ///   [翻译模式提示词]            翻译模式（AutoGlossary=true，翻译线程）
-    ///   [术语抽取模式提示词]        术语抽取模式（AutoGlossary=true，术语线程）
+    /// 从单一自定义提示词文件加载并按 wantGlossary 选取对应分节。
+    /// 文件采用 INI 风格分节，标题独占一行：
+    ///   [普通模式提示词]
+    ///   <普通模式提示词>
+    ///
+    ///   [自动术语表模式提示词]
+    ///   <术语表模式提示词>
     /// 行为：
     ///   - CustomPrompt=false：直接用 defaultPrompt（不读文件）
     ///   - CustomPrompt=true：读 AutoLLM_CustomPrompt.txt
-    ///       * 文件不存在：写入三节模板后返回 defaultPrompt
-    ///       * 文件存在且含对应分节标题 → 返回对应分节（分节为空回退到 defaultPrompt）
-    ///       * 文件存在但无任何分节标题（最旧版整文件即提示词）→ 视整文件为普通模式提示词，
-    ///         重写为三节 INI 格式后按 kind 返回对应内容
+    ///       * 文件不存在：以 DefaultSectionHeader / GlossarySectionHeader 分节写入模板后，
+    ///         按 wantGlossary 返回对应默认值
+    ///       * 文件存在且含分节标题 → 按 wantGlossary 返回对应分节（分节为空回退到对应 Default/Glossary）
+    ///       * 文件存在但无分节标题（最旧版整文件即提示词）→ 视整文件为普通模式提示词，
+    ///         重写为 INI 分节格式（普通节=旧内容，术语表节=内建 Glossary），按 wantGlossary 返回对应内容
     ///   - BepInExRoot 缺失：回退 defaultPrompt
-    /// 加载前会先把旧英文占位符迁移为中文占位符并按需回写文件（Warn 一次）。
     /// </summary>
-    private static string LoadPromptSection(AutoLLMConfig config, PromptKind kind, string defaultPrompt)
+    private static string LoadPromptSection(AutoLLMConfig config, bool wantGlossary, string defaultPrompt)
     {
         if (!config.CustomPrompt)
         {
-            Logger.Info("使用默认系统提示词(" + KindName(kind) + ")");
+            Logger.Info("使用默认" + (wantGlossary ? "术语表" : "") + "系统提示词");
             return defaultPrompt;
         }
 
@@ -169,15 +131,14 @@ json输出格式: {""glossary"":{""原文"":""译文""}}";
 
         if (!File.Exists(path))
         {
-            // 首次运行：生成含三节模板的文件，方便用户修改
+            // 首次运行：生成含两套分节的模板文件，方便用户修改
             try
             {
                 Directory.CreateDirectory(Path.Combine(config.BepInExRoot!, "config"));
                 var template = DefaultSectionHeader + "\n" + Default + "\n\n"
-                    + TranslationSectionHeader + "\n" + TranslationWithGlossary + "\n\n"
-                    + ExtractionSectionHeader + "\n" + GlossaryExtractionOnly;
+                    + GlossarySectionHeader + "\n" + Glossary;
                 File.WriteAllText(path, template, Encoding.UTF8);
-                Logger.Info("已创建自定义系统提示词模板（INI 风格，普通/翻译/术语抽取三节）: " + path);
+                Logger.Info("已创建自定义系统提示词模板（INI 风格，普通/术语表两节）: " + path);
             }
             catch (Exception ex)
             {
@@ -187,37 +148,35 @@ json输出格式: {""glossary"":{""原文"":""译文""}}";
             return defaultPrompt;
         }
 
-        // 文件已存在
+        // 文件已存在：读取并分节
         try
         {
-            string content = File.ReadAllText(path, Encoding.UTF8);
-            content = MigratePlaceholdersIfNeeded(path, content);
+            var content = File.ReadAllText(path, Encoding.UTF8);
             Logger.Info("已加载自定义系统提示词: " + path);
 
-            string? defaultPart = ExtractSectionContent(content, DefaultSectionHeader, TranslationSectionHeader);
-            string? translationPart = ExtractSectionContent(content, TranslationSectionHeader, ExtractionSectionHeader);
-            string? extractionPart = ExtractSectionContent(content, ExtractionSectionHeader, null);
+            // 新格式：按 INI 风格分节标题切分
+            string? defaultPart = ExtractSectionContent(content, DefaultSectionHeader, GlossarySectionHeader);
+            string? glossaryPart = ExtractSectionContent(content, GlossarySectionHeader, null);
 
-            if (defaultPart == null && translationPart == null && extractionPart == null)
+            if (defaultPart == null && glossaryPart == null)
             {
                 // 最旧版格式：整个文件即为普通模式提示词（无分节标题）。
-                // 视旧内容为普通模式提示词，翻译/术语抽取节用内建模板，
-                // 重写为三节 INI 格式后按 kind 返回对应内容。
+                // 视旧内容为普通模式提示词，术语表节用内建 Glossary，
+                // 重写为 INI 分节格式后按 wantGlossary 返回对应内容。
                 var oldPrompt = content.Trim('\r', '\n', ' ', '\t');
                 if (oldPrompt.Length == 0)
                 {
                     Logger.Warn("自定义提示词文件为空，回退到内建默认提示词");
-                    return defaultPrompt;
+                    return wantGlossary ? Glossary : Default;
                 }
 
-                Logger.Warn("检测到旧版自定义提示词文件（无分节标题），正在重写为三节 INI 分节格式: " + path);
+                Logger.Warn("检测到旧版自定义提示词文件（无分节标题），正在重写为新版 INI 分节格式: " + path);
                 try
                 {
                     var template = DefaultSectionHeader + "\n" + oldPrompt + "\n\n"
-                        + TranslationSectionHeader + "\n" + TranslationWithGlossary + "\n\n"
-                        + ExtractionSectionHeader + "\n" + GlossaryExtractionOnly;
+                        + GlossarySectionHeader + "\n" + Glossary;
                     File.WriteAllText(path, template, Encoding.UTF8);
-                    Logger.Info("已将旧版自定义提示词重写为三节 INI 分节格式: " + path);
+                    Logger.Info("已将旧版自定义提示词重写为 INI 分节格式: " + path);
                 }
                 catch (Exception ex)
                 {
@@ -225,78 +184,32 @@ json输出格式: {""glossary"":{""原文"":""译文""}}";
                 }
 
                 defaultPart = oldPrompt;
-                translationPart = TranslationWithGlossary;
-                extractionPart = GlossaryExtractionOnly;
+                glossaryPart = Glossary;
             }
 
-            switch (kind)
+            if (wantGlossary)
             {
-                case PromptKind.Default:
-                    if (defaultPart == null || defaultPart.Trim().Length == 0)
-                    {
-                        Logger.Warn("自定义提示词文件普通模式分节为空，回退到内建默认提示词");
-                        return Default;
-                    }
-                    return defaultPart;
-                case PromptKind.Translation:
-                    if (translationPart == null || translationPart.Trim().Length == 0)
-                    {
-                        Logger.Warn("自定义提示词文件翻译模式分节为空，回退到内建翻译模式默认提示词");
-                        return TranslationWithGlossary;
-                    }
-                    return translationPart;
-                case PromptKind.Extraction:
-                    if (extractionPart == null || extractionPart.Trim().Length == 0)
-                    {
-                        Logger.Warn("自定义提示词文件术语抽取分节为空，回退到内建术语抽取默认提示词");
-                        return GlossaryExtractionOnly;
-                    }
-                    return extractionPart;
-                default:
-                    return defaultPrompt;
+                if (glossaryPart == null || glossaryPart.Trim().Length == 0)
+                {
+                    Logger.Warn("自定义提示词文件术语表分节为空，回退到内建术语表默认提示词");
+                    return Glossary;
+                }
+                return glossaryPart;
+            }
+            else
+            {
+                if (defaultPart == null || defaultPart.Trim().Length == 0)
+                {
+                    Logger.Warn("自定义提示词文件普通模式分节为空，回退到内建默认提示词");
+                    return Default;
+                }
+                return defaultPart;
             }
         }
         catch (Exception ex)
         {
             Logger.Error("读取自定义系统提示词失败", ex);
             return defaultPrompt;
-        }
-    }
-
-    /// <summary>
-    /// 把旧英文占位符迁移为中文占位符；若发生替换则回写文件并 Warn 一次。
-    /// 旧 → 新：{{TARGET_LAN}}→{{目标语言}} {{SOURCE_LAN}}→{{源语言}}
-    ///         {{GLOSSARY}}→{{术语表}} {{RECENT}}→{{最近原文}}
-    /// </summary>
-    private static string MigratePlaceholdersIfNeeded(string path, string content)
-    {
-        string migrated = content
-            .Replace("{{TARGET_LAN}}", "{{目标语言}}")
-            .Replace("{{SOURCE_LAN}}", "{{源语言}}")
-            .Replace("{{GLOSSARY}}", "{{术语表}}")
-            .Replace("{{RECENT}}", "{{最近原文}}");
-        if (migrated == content) return content;
-
-        Logger.Warn("检测到旧英文占位符，已迁移为中文占位符并回写自定义提示词文件: " + path);
-        try
-        {
-            File.WriteAllText(path, migrated, Encoding.UTF8);
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("回写迁移后的自定义提示词文件失败（本次仍按迁移后内容返回）", ex);
-        }
-        return migrated;
-    }
-
-    private static string KindName(PromptKind kind)
-    {
-        switch (kind)
-        {
-            case PromptKind.Default: return "普通模式";
-            case PromptKind.Translation: return "翻译模式";
-            case PromptKind.Extraction: return "术语抽取模式";
-            default: return kind.ToString();
         }
     }
 
