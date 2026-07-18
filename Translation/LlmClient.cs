@@ -5,6 +5,23 @@ using System.Net;
 using System.Text;
 
 
+internal interface ILlmClient
+{
+    /// <summary>
+    /// 同步发送翻译请求到 LLM API，返回结果或抛出异常。
+    /// 调用线程会被阻塞（HttpWebRequest 是同步的），由调用方负责在后台线程上调用。
+    /// </summary>
+    /// <throws>WebException（网络/HTTP 错误，含 429）</throws>
+    /// <throws>Exception（解析失败等其他错误）</throws>
+    LlmResult Translate(
+        string url,
+        string apiKey,
+        string model,
+        List<LlmMessage> messages,
+        Dictionary<string, object> extraParams);
+}
+
+
 internal class LlmClient : ILlmClient
 {
     // 单例标志（static：跨批次共享）
@@ -50,6 +67,7 @@ internal class LlmClient : ILlmClient
         using (var reader = new StreamReader(stream))
         {
             var fullResponse = new StringBuilder();
+            var reasoningAccum = new StringBuilder();
             var usage = new Dictionary<string, object>();
             int chunks = 0;
             bool done = false;
@@ -63,9 +81,11 @@ internal class LlmClient : ILlmClient
                 string data = line.Substring(5).TrimStart();
                 if (data == "[DONE]") { done = true; break; }
                 chunks++;
-                SimpleJson.ParseSseChunk(data, out string? content, out Dictionary<string, object>? u);
+                SimpleJson.ParseSseChunk(data, out string? content, out string? reasoningContent, out Dictionary<string, object>? u);
                 if (!string.IsNullOrEmpty(content))
                     fullResponse.Append(content);
+                if (!string.IsNullOrEmpty(reasoningContent))
+                    reasoningAccum.Append(reasoningContent);
                 if (u != null) usage = u;
             }
 
@@ -78,7 +98,8 @@ internal class LlmClient : ILlmClient
                 FullResponse = fullResponse.ToString(),
                 ChunkCount = chunks,
                 DoneReceived = done,
-                ElapsedMs = Environment.TickCount - startTick
+                ElapsedMs = Environment.TickCount - startTick,
+                Reasoning = reasoningAccum.ToString()
             };
 
             // 5. 提取 token 用量

@@ -14,9 +14,14 @@ internal class TaskQueue
     private int _waitingTotalChars = 0;
     private volatile int _outstandingCount = 0;
 
+    // 最近一次任务入队的 Environment.TickCount，供工作线程 debounce 沉淀窗口判断。
+    // 写于各入队路径（lock 内），读于工作线程（无锁），用 volatile 保证可见性。
+    private volatile int _lastEnqueueTick;
+
     public int Count { get { lock (_lock) return _list.Count - _head; } }
     public int WaitingTotalChars { get { lock (_lock) return _waitingTotalChars; } }
     public int OutstandingCount { get { return _outstandingCount; } }
+    public int LastEnqueueTick => _lastEnqueueTick;
     public AutoResetEvent Signal => _signal;
 
     public TaskQueue(int maxSize = 2000)
@@ -34,6 +39,7 @@ internal class TaskQueue
             _list.Add(task);
             _waitingTotalChars += task.CharLen;
             _outstandingCount++;
+            _lastEnqueueTick = Environment.TickCount;
         }
         _signal.Set();
         return true;
@@ -84,6 +90,7 @@ internal class TaskQueue
             int totalChars = 0;
             foreach (var t in tasks) totalChars += t.CharLen;
             _waitingTotalChars += totalChars;
+            _lastEnqueueTick = Environment.TickCount;
         }
         _signal.Set();
     }
@@ -96,6 +103,7 @@ internal class TaskQueue
             task.ResetForRetry();
             _list.Add(task);
             _waitingTotalChars += task.CharLen;
+            _lastEnqueueTick = Environment.TickCount;
         }
         _signal.Set();
     }

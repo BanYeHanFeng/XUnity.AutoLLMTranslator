@@ -1,63 +1,53 @@
 ﻿using System;
 using XUnity.Common.Logging;
 
+// 日志底层与框架自带的翻译器（GoogleTranslate / DeepL / Bing …）保持一致：
+// 统一经 XuaLogger.AutoTranslator 转发，由 BepInEx 的 Console/Disk listener 按
+// BepInEx.cfg 的 [Logging.Console]/[Logging.Disk].LogLevels 过滤。
+// 本类只做转发 + [AutoLLM] 标签统一加注，不再本地重复门控日志级别。
 internal static class Logger
 {
-    static bool _infoEnabled = true;
-    static bool _warnEnabled = true;
-    static bool _debugEnabled = false;
-    // 错误级别始终启用，不需要标志位
-
-    public static bool IsInfoEnabled  => _infoEnabled;
-    public static bool IsWarnEnabled  => _warnEnabled;
-    public static bool IsDebugEnabled => _debugEnabled;
-
-    public static void Init(AutoLLMConfig config)
-    {
-        _debugEnabled = config.DebugEnabled;
-        _infoEnabled = config.InfoEnabled;
-        _warnEnabled = config.WarnEnabled;
-    }
+    private const string Tag = "[AutoLLM] ";
 
     public static void Info(string message)
     {
-        if (_infoEnabled) XuaLogger.Common.Info(message);
+        XuaLogger.AutoTranslator.Info(Tag + message);
     }
 
-    public static void Info(string message, System.Exception? ex)
+    public static void Info(string message, Exception? ex)
     {
-        if (_infoEnabled) XuaLogger.Common.Info(ex, message);
+        XuaLogger.AutoTranslator.Info(ex, Tag + message);
     }
 
     public static void Debug(string message)
     {
-        if (_debugEnabled) XuaLogger.Common.Debug(message);
+        XuaLogger.AutoTranslator.Debug(Tag + message);
     }
 
-    public static void Debug(string message, System.Exception? ex)
+    public static void Debug(string message, Exception? ex)
     {
-        if (_debugEnabled) XuaLogger.Common.Debug(ex, message);
+        XuaLogger.AutoTranslator.Debug(ex, Tag + message);
     }
 
     public static void Warn(string message)
     {
-        if (_warnEnabled) XuaLogger.Common.Warn(message);
+        XuaLogger.AutoTranslator.Warn(Tag + message);
     }
 
-    public static void Warn(string message, System.Exception? ex)
+    public static void Warn(string message, Exception? ex)
     {
-        if (_warnEnabled) XuaLogger.Common.Warn(ex, message);
+        XuaLogger.AutoTranslator.Warn(ex, Tag + message);
     }
 
     public static void Error(string message)
     {
-        try { XuaLogger.Common.Error(message); }
+        try { XuaLogger.AutoTranslator.Error(Tag + message); }
         catch { Console.Error.WriteLine("[ALLM_Error]: " + message); }
     }
 
-    public static void Error(string message, System.Exception? ex)
+    public static void Error(string message, Exception? ex)
     {
-        try { XuaLogger.Common.Error(ex, message); }
+        try { XuaLogger.AutoTranslator.Error(ex, Tag + message); }
         catch { Console.Error.WriteLine("[ALLM_Error]: " + message + " | " + ex); }
     }
 }

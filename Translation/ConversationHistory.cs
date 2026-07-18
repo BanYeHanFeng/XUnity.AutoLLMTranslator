@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 
 internal class ConversationHistory
@@ -11,6 +12,12 @@ internal class ConversationHistory
     private bool _apiReturnsTokens = false;
     private int _discardCount = 0;
     private int _clearCount = 0;
+
+    // 输入/输出 JSON 的编号键："1"/"2"/... 从 1 开始单调递增；同一对话历史窗口内每个
+    // 编号唯一，杜绝旧实现跨批次重号（模型把不同批次同号条目拼成同一对象）的混淆。
+    // 历史清空时（CheckAndClearIfOverLimit / ClearHistory / UpdateSystemPrompt 三处入口）
+    // 一并重置回 1 —— 此时历史已无旧批条目，模型不会再见到这些编号，故从 1 重新递增安全。
+    private int _nextKey = 1;
 
     public bool Enabled { get; set; }
     public int MaxContext { get; set; }
@@ -52,7 +59,43 @@ internal class ConversationHistory
             _systemPromptTokens = prompt.Length * 3 / 4;
             _totalContextTokens = _systemPromptTokens;
         }
-        Logger.Debug("Token 估算: 系统提示词=" + _systemPromptTokens + " tokens (字符=" + prompt.Length + "×0.75)");
+    }
+
+    /// <summary>
+    /// 为批内任务分配本批 JSON 输入/输出键 "1"/"2"/...（_nextKey 当前值即起始键）。
+    /// ParallelCount 已废弃固定为 1，无并发批次，键的递增在锁内一次完成即可。
+    /// 每个 task.UserKey 写入其对应的编号字符串；Advance() 仅发生在分配处。
+    /// 调用方负责在 RecordExchange（成功）后才把对应轮次记录入库——键的递增与历史
+    /// 记录是两个独立维度：键递增不可回退（避免与历史旧轮重号），即便批次最终失败
+    /// 重试也只是排到下一批再分配新一组键（与首次键不同，但不重号）。
+    /// </summary>
+    public void AllocKeys(List<TranslationTask> batch)
+    {
+        lock (_lock)
+        {
+            int k = _nextKey;
+            for (int i = 0; i < batch.Count; i++)
+            {
+                batch[i].UserKey = k.ToString(CultureInfo.InvariantCulture);
+                k++;
+            }
+            _nextKey = k;
+        }
+    }
+
+    /// <summary>
+    /// 更新系统提示词及其 token 估算（术语表合并后系统提示词变长时调用）。
+    /// 会重置历史并基于新系统提示词重新计算基线 token。
+    /// </summary>
+    public void UpdateSystemPrompt(string prompt)
+    {
+        lock (_lock)
+        {
+            _systemPromptTokens = prompt.Length * 3 / 4;
+            _history.Clear();
+            _totalContextTokens = _systemPromptTokens;
+            _nextKey = 1;   // 历史清空 → 编号键重置回 1
+        }
     }
 
     /// <summary>估算纯文本的 token 数（0.75 字符/token）。</summary>
@@ -61,10 +104,10 @@ internal class ConversationHistory
         return text.Length * 3 / 4;
     }
 
-    /// <summary>检查上下文是否超限，超限则清空历史。</summary>
-    public void CheckAndClearIfOverLimit()
+    /// <summary>检查上下文是否超限，超限则清空历史。返回 true 表示触发了清空。</summary>
+    public bool CheckAndClearIfOverLimit()
     {
-        if (MaxContext <= 0 || !Enabled) return;
+        if (MaxContext <= 0 || !Enabled) return false;
         lock (_lock)
         {
             if (_totalContextTokens > MaxContext)
@@ -73,14 +116,18 @@ internal class ConversationHistory
                 _history.Clear();
                 _totalContextTokens = _systemPromptTokens;
                 _clearCount++;
-                Logger.Info("历史清空: tokens=" + oldTokens + " 超过最大上下文(" + MaxContext + "), 清空次数=" + _clearCount);
+                _nextKey = 1;   // 历史清空 → 编号键重置回 1
+                LogHistoryCleared(oldTokens, "超过最大上下文");
+                return true;
             }
-            // Debug 日志加守卫，避免在 Debug 关闭时无谓构造字符串
-            if (Logger.IsDebugEnabled)
-            {
-                Logger.Debug("上下文状态: " + _totalContextTokens + "/" + MaxContext + " tokens, 历史" + (_history.Count / 2) + "轮, 清空" + _clearCount + "次");
-            }
+            return false;
         }
+    }
+
+    /// <summary>统一的"历史清空"Info 日志。</summary>
+    private void LogHistoryCleared(int oldTokens, string reason)
+    {
+        Logger.Info("历史清空: tokens=" + oldTokens + "/" + MaxContext + " " + reason + ", 清空次数=" + _clearCount);
     }
 
     /// <summary>记录 API 返回的精确 token 统计。</summary>
@@ -90,18 +137,8 @@ internal class ConversationHistory
         lock (_lock)
         {
             if (!_apiReturnsTokens)
-            {
                 _apiReturnsTokens = true;
-                if (Logger.IsDebugEnabled)
-                    Logger.Debug("Token 追踪: 接口返回精确 token 统计，切换为精确模式");
-            }
-            int newTotal = (int)(promptTokens + completionTokens);
-            if (Logger.IsDebugEnabled)
-            {
-                Logger.Debug("Token 精确更新: 输入=" + promptTokens + " 输出=" + completionTokens
-                    + " 合计=" + newTotal + " (旧值=" + _totalContextTokens + ")");
-            }
-            _totalContextTokens = newTotal;
+            _totalContextTokens = (int)(promptTokens + completionTokens);
         }
     }
 
@@ -115,15 +152,7 @@ internal class ConversationHistory
             _history.Add(new LlmMessage { Role = "user", Content = userInput });
             _history.Add(new LlmMessage { Role = "assistant", Content = assistantOutput });
             if (!_apiReturnsTokens)
-            {
-                int added = (userInput.Length + assistantOutput.Length) * 3 / 4;
-                _totalContextTokens += added;
-                if (Logger.IsDebugEnabled)
-                {
-                    Logger.Debug("Token 估算累加: +" + added + " tokens (用户=" + userInput.Length
-                        + "字符, 回答=" + assistantOutput.Length + "字符), 累积=" + _totalContextTokens);
-                }
-            }
+                _totalContextTokens += (userInput.Length + assistantOutput.Length) * 3 / 4;
         }
     }
 
@@ -136,8 +165,8 @@ internal class ConversationHistory
         }
     }
 
-    /// <summary>强制清空历史（上下文接近上限但未触发自动清空时调用）。</summary>
-    public void ClearHistory()
+    /// <summary>强制清空历史（上下文接近上限但未触发自动清空时调用）。返回 true（始终清空）。</summary>
+    public bool ClearHistory()
     {
         lock (_lock)
         {
@@ -145,7 +174,9 @@ internal class ConversationHistory
             _history.Clear();
             _totalContextTokens = _systemPromptTokens;
             _clearCount++;
-            Logger.Info("历史清空: tokens=" + oldTokens + " 已接近上限(" + MaxContext + "), 清空次数=" + _clearCount);
+            _nextKey = 1;   // 历史清空 → 编号键重置回 1
+            LogHistoryCleared(oldTokens, "已接近上限");
         }
+        return true;
     }
 }
